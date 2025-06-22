@@ -58,8 +58,9 @@ python3 -m beyondagent.main_ppo \
     trainer.save_freq=-1 \
     trainer.test_freq=20 \
     trainer.total_epochs=15 \
-    trainer.val_before_train=False \
-    trainer.validation_data_dir="experiments/validation_log" \
+    trainer.val_before_train=True \
+    trainer.validation_data_dir="experiments/exp_${current_time}/validation_log" \
+    trainer.rollout_data_dir="experiments/exp_${current_time}/rollout_log" \
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu=20480 \
     actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=20480 \
     actor_rollout_ref.ref.log_prob_max_token_len_per_gpu=20480 \

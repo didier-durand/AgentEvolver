@@ -153,26 +153,26 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
             print(f"test_gen_batch meta info: {test_gen_batch.meta_info}")
 
             # pad to be divisible by dp_size
-            test_gen_batch_padded, pad_size = pad_dataproto_to_divisor(test_gen_batch, self.actor_rollout_wg.world_size)
+            # test_gen_batch_padded, pad_size = pad_dataproto_to_divisor(test_gen_batch, self.actor_rollout_wg.world_size)
             if not self.async_rollout_mode:
                 test_output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(test_gen_batch_padded)
             else:
                 self.async_rollout_manager.wake_up()
                 tasks = [Task(
-                            task_id=test_gen_batch_padded.non_tensor_batch["extras"][i]["task_id"], 
-                            query=test_gen_batch_padded.non_tensor_batch["raw_prompt"][i],
+                            task_id=test_gen_batch.non_tensor_batch["extras"][i]["task_id"], 
+                            query=test_gen_batch.non_tensor_batch["raw_prompt"][i],
                             env_type=self.config.env_service.env_type
-                         ) for i in range(len(test_gen_batch_padded))]
+                         ) for i in range(len(test_gen_batch))]
                 print("=" * 10 + "start validate rollout" + "=" * 10)
                 trajectories = self.env_manager.rollout(tasks, mode="validate")
                 print("=" * 10 + "end validate rollout" + "=" * 10)
-                test_output_gen_batch_padded = self.env_manager.to_dataproto(trajectories)
+                test_output_gen_batch = self.env_manager.to_dataproto(trajectories)
                 # test_output_gen_batch_padded = self.explorer_manager.rollout(test_gen_batch_padded)
                 # test_output_gen_batch_padded = self.async_rollout_manager.generate_sequences(test_gen_batch_padded)
                 self.async_rollout_manager.sleep()
 
             # unpad
-            test_output_gen_batch = unpad_dataproto(test_output_gen_batch_padded, pad_size=pad_size)
+            # test_output_gen_batch = unpad_dataproto(test_output_gen_batch_padded, pad_size=pad_size)
             print("validation generation end")
 
             # Store original inputs
