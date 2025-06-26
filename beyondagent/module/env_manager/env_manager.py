@@ -106,7 +106,7 @@ class ParallelEnvManager(object):
                                              rollout_id=str(rollout_id), mode=mode, thread_index=thread_index)
                     futures.append(future)
 
-            for future in tqdm(futures):
+            for future in tqdm(futures, desc="collect rollout result"):
                 # do not fail silently
                 result = future.result()
                 trajectory_list.append(result)

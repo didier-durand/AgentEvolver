@@ -29,9 +29,10 @@ actor_rollout_ref:
     custom_dataflow_cls:
       path: ""
       name: ""
-    use_qwen3: True
+    use_qwen3: False
     max_env_worker: 64
     max_env_len: 4096
+    enable_request_id: False
 
 thread_pool:
   max_workers: 5

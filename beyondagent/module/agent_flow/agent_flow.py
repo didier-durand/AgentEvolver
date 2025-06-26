@@ -1,3 +1,4 @@
+import json
 import time
 
 from loguru import logger
@@ -49,20 +50,29 @@ class AgentFlow(BaseAgentFlow):
                 logger.warning(f"exceed max model len={self.max_model_len}")
                 break
 
-            # callback llm server, messages.size=1
+            enable_request_id = False
+            if hasattr(self.config.actor_rollout_ref.rollout, "enable_request_id"):
+                enable_request_id: bool = self.config.actor_rollout_ref.rollout.enable_request_id
+                assert isinstance(enable_request_id, bool), f"enable_request_id is bool value"
+
             t_start = time.time()
+            request_id = request_id if enable_request_id else None
+            # callback llm server, messages.size=1
             llm_output = self.llm_chat_fn(trajectory.steps, request_id=request_id)
-            time_cost = round(time.time() - t_start, 2)
+            time_cost = round(time.time() - t_start, 4)
             new_request_id = llm_output.pop("request_id", None)
-            logger.info(f"act_step={act_step} "
-                        f"llm_output={llm_output} "
-                        f"new_request_id={new_request_id} "
-                        f"request_id={request_id} "
-                        f"time_cost={time_cost}")
+
+            info_dict = {
+                "act_step": act_step,
+                "llm_output": llm_output,
+                "new_request_id": new_request_id,
+                "request_id": request_id,
+                "time_cost": time_cost,
+            }
+            logger.info(f"info_dict={json.dumps(info_dict)}")
+
             request_id = new_request_id
-
             trajectory.steps.append(llm_output)
-
             env_output = env.step(instance_id, llm_output)
             # convert role_tool to role_user message
             # breakpoint()

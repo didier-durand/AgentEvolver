@@ -24,12 +24,12 @@ python3 -m beyondagent.main_ppo \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
     data.return_raw_chat=True \
-    actor_rollout_ref.rollout.use_qwen3=True \
+    actor_rollout_ref.rollout.enable_request_id=True \
     actor_rollout_ref.rollout.prompt_length=20480 \
-    actor_rollout_ref.rollout.response_length=2048 \
+    actor_rollout_ref.rollout.response_length=4096 \
     actor_rollout_ref.rollout.max_model_len=20480 \
     actor_rollout_ref.rollout.temperature=0.9 \
-    actor_rollout_ref.model.path=/mnt/data_cpfs/xielipeng.xlp/models/Qwen3-4B \
+    actor_rollout_ref.model.path=/mnt/data_cpfs/xielipeng.xlp/models/Qwen2.5-7B-Instruct \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=16 \
@@ -45,20 +45,20 @@ python3 -m beyondagent.main_ppo \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.mode=async \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.n=8 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.use_kl_in_reward=False \
-    trainer.n_gpus_per_node=4 \
+    trainer.n_gpus_per_node=2 \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='beyondagent' \
-    trainer.experiment_name='qwen3-4b_appworld_jinli' \
+    trainer.experiment_name='qwen2.5-7b_appworld_jinli' \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
     trainer.test_freq=20 \
-    trainer.total_epochs=60 \
+    trainer.total_epochs=1 \
     trainer.val_before_train=True \
     trainer.validation_data_dir="experiments/exp_${current_time}/validation_log" \
     trainer.rollout_data_dir="experiments/exp_${current_time}/rollout_log" \
@@ -69,8 +69,8 @@ python3 -m beyondagent.main_ppo \
     critic.forward_max_token_len_per_gpu=20480 \
     data.train_files=/mnt/data_cpfs/zouanni.zan/data/appworld_parquet/train.parquet \
     data.val_files=/mnt/data_cpfs/zouanni.zan/data/appworld_parquet/dev.parquet \
-    experience_maker.enable_summarizer=True \
-    experience_maker.enable_context_generator=True \
-    experience_maker.workspace_id="w1_qwen3_v1" \
+    experience_maker.enable_summarizer=False \
+    experience_maker.enable_context_generator=False \
+    experience_maker.workspace_id="w1_qwen25_v1" \
     2>&1 | tee "$log_file" \
     $@
