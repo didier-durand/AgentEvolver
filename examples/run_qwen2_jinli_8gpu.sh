@@ -70,8 +70,8 @@ python3 -m beyondagent.main_ppo \
     critic.forward_max_token_len_per_gpu=20480 \
     data.train_files=/mnt/data_cpfs/zouanni.zan/data/appworld_parquet/train.parquet \
     data.val_files=/mnt/data_cpfs/zouanni.zan/data/appworld_parquet/dev.parquet \
-    experience_maker.enable_summarizer=False \
-    experience_maker.enable_context_generator=False \
+    experience_maker.enable_summarizer=True \
+    experience_maker.enable_context_generator=True \
     experience_maker.workspace_id="w1_qwen25_v2_${current_time}" \
     2>&1 | tee "$log_file" \
     $@
