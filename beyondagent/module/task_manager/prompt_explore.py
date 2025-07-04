@@ -17,19 +17,18 @@ Ensure the chosen action is within the user-defined set of actions.
 
 ## Action Format:
 
-Enclose the action within <action></action> tags. Every response must contain a valid action enclosed in these tags.
+Please follow the user-defined action format. If there is no action format, you can use the format you prefer.
 
 ## Instructions:
 
-Choose only one action at a time.
+Do not focus on the task at hand but instead are keen on discovering and executing actions within the allowed set of options provided.
+
+Choose only one action at a time. 
 
 Carefully read the environment description and task instructions.
 
-Ensure that the action is in the correct format.
+Ensure that the action is in the correct format. If the action is invalid, verify that it is properly formatted.
 
-If the action is invalid, verify that it is properly formatted.
-
-Always include a valid action and action tags in your reply.
 """
 
 def parse_action_from_response(response: str) -> str:

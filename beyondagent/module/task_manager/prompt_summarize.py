@@ -1,5 +1,7 @@
+import json
 from typing import Optional, Sequence, Tuple
 
+from beyondagent.schema.task import Task,TaskObjective
 from beyondagent.schema.trajectory import Trajectory
 
 
@@ -24,65 +26,22 @@ You are a *Task Abstraction Expert*. Your specialty is to inspect an agent's int
 For every task you identify, output exactly one block in the form below:
 
 <task>
-Description: [A precise task description. File paths or locations are allowed.]
-Query: [A succinct search / training query—results only, no extra guidance.]
-Confidence: [0.0 – 1.0, your confidence in this abstraction]
-ActionSequence: [A minimal sequence]
+{
+  "description": "[A precise task description. File paths or locations are allowed.]",
+  "query": "[A succinct search / training query—results only, no extra guidance.]",
+  "confidence": "[0.0 - 1.0, your confidence in this abstraction]",
+  "action_sequence": "[A minimal sequence]"
+}
 </task>
 
 ===========================  EXAMPLE  ======================
 <task>
-Description: Get the most-liked song in my Spotify playlists.
-Query: Using these APIs, now generate code to solve the actual task:\n\nMy name is: Joyce Weaver. My personal email is joyce-weav@gmail.com and phone number is 3155673041.\n\nTask:\n\nWhat is the title of the most-liked song in my Spotify playlists.
-Confidence: 1.0
-ActionSequence: 
-# step0
-print(apis.api_docs.show_app_descriptions())
-# step1
-print(apis.api_docs.show_api_descriptions(app_name='supervisor'))
-# step2
-print(apis.api_docs.show_api_doc(app_name='supervisor', api_name='show_account_passwords'))
-# step3
-print(apis.supervisor.show_account_passwords())
-passwords = apis.supervisor.show_account_passwords()
-# step4
-spotify_password = [account_password for account_password in passwords if account_password["account_name"] == "spotify"][0]["password"]
-print(spotify_password)
-# step5
-print(apis.api_docs.show_api_descriptions(app_name='spotify'))
-# step6
-print(apis.api_docs.show_api_doc(app_name='spotify', api_name='show_playlist_library'))
-# step7
-print(apis.api_docs.show_api_doc(app_name='spotify', api_name='login'))
-print(apis.api_docs.show_api_doc(app_name='supervisor', api_name='show_profile'))
-# step8
-email = apis.supervisor.show_profile()['email']
-access_token = apis.spotify.login(username=email, password=spotify_password)['access_token']
-playlist_0 = apis.spotify.show_playlist_library(page_index=0, access_token=access_token)
-print(apis.api_docs.show_api_doc(app_name='spotify', api_name='show_song'))
-like_count = apis.spotify.show_song(song_id=136)['like_count']
-# step9
-page_index = 0
-song_ids_all = []
-while True:
-    playlists = apis.spotify.show_playlist_library(page_index=page_index, access_token=access_token)
-    if not playlists:
-        break
-    for _ in playlists:
-        song_ids_all.extend(_['song_ids'])
-    page_index += 1
-print(song_ids_all)
-
-max_id = -1
-max_like_count = 0
-for _ in song_ids_all:
-    like_count = apis.spotify.show_song(song_id=_)['like_count']
-    max_like_count = max(max_like_count, like_count)
-    if max_like_count == like_count:
-        max_id = _
-answer = apis.spotify.show_song(song_id=max_id)['title']
-print(answer)
-apis.supervisor.complete_task(answer=answer)
+{
+  "description": "Get the most-liked song in my Spotify playlists.",
+  "query": "Using these APIs, now generate code to solve the actual task:\n\nMy name is: Joyce Weaver. My personal email is joyce-weav@gmail.com and phone number is 3155673041.\n\nTask:\n\nWhat is the title of the most-liked song in my Spotify playlists.",
+  "confidence": 1.0,
+  "action_sequence": "# step0\nprint(apis.api_docs.show_app_descriptions())\n# step1\nprint(apis.api_docs.show_api_descriptions(app_name='supervisor'))\n# step2\nprint(apis.api_docs.show_api_doc(app_name='supervisor', api_name='show_account_passwords'))\n# step3\nprint(apis.supervisor.show_account_passwords())\npasswords = apis.supervisor.show_account_passwords()\n# step4\nspotify_password = [account_password for account_password in passwords if account_password[\"account_name\"] == \"spotify\"][0][\"password\"]\nprint(spotify_password)\n# step5\nprint(apis.api_docs.show_api_descriptions(app_name='spotify'))\n# step6\nprint(apis.api_docs.show_api_doc(app_name='spotify', api_name='show_playlist_library'))\n# step7\nprint(apis.api_docs.show_api_doc(app_name='spotify', api_name='login'))\nprint(apis.api_docs.show_api_doc(app_name='supervisor', api_name='show_profile'))\n# step8\nemail = apis.supervisor.show_profile()['email']\naccess_token = apis.spotify.login(username=email, password=spotify_password)['access_token']\nplaylist_0 = apis.spotify.show_playlist_library(page_index=0, access_token=access_token)\nprint(apis.api_docs.show_api_doc(app_name='spotify', api_name='show_song'))\nlike_count = apis.spotify.show_song(song_id=136)['like_count']\n# step9\npage_index = 0\nsong_ids_all = []\nwhile True:\n    playlists = apis.spotify.show_playlist_library(page_index=page_index, access_token=access_token)\n    if not playlists:\n        break\n    for _ in playlists:\n        song_ids_all.extend(_['song_ids'])\n    page_index += 1\nprint(song_ids_all)\n\nmax_id = -1\nmax_like_count = 0\nfor _ in song_ids_all:\n    like_count = apis.spotify.show_song(song_id=_)['like_count']\n    max_like_count = max(max_like_count, like_count)\n    if max_like_count == like_count:\n        max_id = _\nanswer = apis.spotify.show_song(song_id=max_id)['title']\nprint(answer)\napis.supervisor.complete_task(answer=answer)"
+}
 </task>
 """
 
@@ -133,9 +92,11 @@ Please identify the specific tasks the agent is attempting to complete in these 
     return AGENT_SUMMARIZE_SYSTEM_PROMPT,user_prompt
 
 
-def parse_tasks_from_response(response: str) -> list:
+def parse_tasks_from_response(task:Task,response: str) -> list[TaskObjective]:
     """从响应中解析任务列表"""
-    tasks = []
+    task=task.copy()
+    
+    tasks: list[TaskObjective] = []
     try:
         import re
         
@@ -143,51 +104,19 @@ def parse_tasks_from_response(response: str) -> list:
         task_matches = re.findall(r'<task>(.*?)</task>', response, re.DOTALL)
         
         for task_content in task_matches:
-            task_info = {}
-            lines = task_content.strip().split('\n')
-            
-            # 初始化ActionSequence收集相关变量
-            collecting_action_sequence = False
-            action_sequence_lines = []
-            
-            for line in lines:
-                line = line.strip()
-                if line.startswith('Description:'):
-                    task_info['description'] = line.replace('Description:', '').strip()
-                elif line.startswith('Query:'):
-                    task_info['query'] = line.replace('Query:', '').strip()
-                elif line.startswith('Confidence:'):
-                    confidence_str = line.replace('Confidence:', '').strip()
-                    try:
-                        task_info['confidence'] = float(confidence_str)
-                    except ValueError:
-                        task_info['confidence'] = 1.0
-                elif line.startswith('ActionSequence:'):
-                    # ActionSequence可能有多行，需要收集所有后续行
-                    collecting_action_sequence = True
-                    action_sequence_text = line.replace('ActionSequence:', '').strip()
-                    if action_sequence_text:
-                        action_sequence_lines.append(action_sequence_text)
-                elif collecting_action_sequence:
-                    # 如果遇到下一个字段的开始，停止收集
-                    if (line.startswith('Description:') or 
-                        line.startswith('Query:') or 
-                        line.startswith('Confidence:')):
-                        collecting_action_sequence = False
-                    else:
-                        action_sequence_lines.append(line)
-            
-            # 组装ActionSequence
-            if action_sequence_lines:
-                task_info['gt'] = '\n'.join(action_sequence_lines)
-            else:
-                task_info['gt'] = ""
+            t=json.loads(task_content)
             
             # 检查必要字段
-            if 'description' in task_info and 'query' in task_info:
-                if 'confidence' not in task_info:
-                    task_info['confidence'] = 1.0
-                tasks.append(task_info)
+            if 'description' not in t or 'query' not in t or 'confidence' not in t or 'action_sequence' not in t:
+                continue
+            task.query=t['query']
+            tasks.append(TaskObjective(
+                task=task,
+                description=t['description'],
+                confidence=t['confidence'],
+                ground_truth=t['action_sequence'],
+                reward=None
+            ))
                 
     except Exception as e:
         print(f"Error parsing tasks: {e}")

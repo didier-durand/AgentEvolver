@@ -8,12 +8,6 @@ from loguru import logger
 import requests
 
 
-class LlmClient(Protocol):
-    def chat(self, messages: list[dict[str, str]], sampling_params: dict[str, Any]) -> str:
-        ...
-
-
-
 class DashScopeClient:
     """阿里云百炼API客户端"""
     
