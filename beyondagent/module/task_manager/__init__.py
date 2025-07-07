@@ -224,6 +224,28 @@ class TaskManager(object):
         return llm_chat
 
 
+
+class NaiveTaskObjectiveRetrieval(TaskObjectiveRetrieval):
+    
+    def __init__(self):
+        # 目前单次训练中只会有同一个 env_type 的 task，所以可以直接使用 task_id as key
+        self._mp:dict[str,list[TaskObjective]]={}
+    
+    @override
+    def retrieve_objectives(self, task: Task) -> list[TaskObjective]:
+        if task.task_id not in self._mp:
+            return []
+        return self._mp[task.task_id]
+    
+    @override
+    def add_objective(self, objective: TaskObjective):
+        if objective.task.task_id not in self._mp:
+            self._mp[objective.task.task_id]=[]
+        
+        self._mp[objective.task.task_id].append(objective)
+
+
+
 # TODO(cc): task manager 的多线程和数据集多线程有冲突似乎
 
 @hydra.main(config_path="/Users/cc/projects/BeyondAgent/config", config_name="beyond_agent_dataflow", version_base=None)
@@ -232,22 +254,9 @@ def test(config):
     import json
     from torch.utils.data import DataLoader
     from verl.utils.dataset.rl_dataset import collate_fn as default_collate_fn
-    
-    class OldRetrival(TaskObjectiveRetrieval):
-        def __init__(self):
-            self._t=[]
         
-        @override
-        def retrieve_objectives(self, task: Task) -> list[TaskObjective]:
-            return self._t
-        
-        @override
-        def add_objective(self, objective: TaskObjective):
-            self._t.append(objective)
-        
-    oldr=OldRetrival()
     tokenizer=transformers.AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B-Instruct", trust_remote_code=True)
-    manager=TaskManager(config,DashScopeClient(),oldr,tokenizer=tokenizer,env_service_url="http://localhost:8000",max_explore_step=5,max_llm_retries=3,num_explore_threads=2,n=2)
+    manager=TaskManager(config,DashScopeClient(),NaiveTaskObjectiveRetrieval(),tokenizer=tokenizer,env_service_url="http://localhost:8000",max_explore_step=5,max_llm_retries=3,num_explore_threads=2,n=2)
     task=Task(task_id="0a9d82a_1",env_type="appworld")
     tasks=[task]*100
     dataset=manager.get_dataset(iter(tasks),bs=1,tokenizer=tokenizer,config=config)
