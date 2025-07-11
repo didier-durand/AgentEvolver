@@ -16,7 +16,6 @@ class Task(BaseModel):
 
 class TaskObjective(BaseModel):
     task:Task=Field(...,description="task")
-    description:str=Field(...,description="description of the task")
     ground_truth:str=Field(...,description="ground truth")
     confidence:Optional[float]=Field(None,description="confidence")
     reward:Optional[float]=Field(None,description="reward")

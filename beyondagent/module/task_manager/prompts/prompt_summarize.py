@@ -27,7 +27,6 @@ For every task you identify, output exactly one block in the form below:
 
 <task>
 {
-  "description": "[A precise task description. File paths or locations are allowed.]",
   "query": "[A succinct search / training query—results only, no extra guidance.]",
   "confidence": "[0.0 - 1.0, your confidence in this abstraction]",
   "action_sequence": "[A minimal sequence]"
@@ -37,7 +36,6 @@ For every task you identify, output exactly one block in the form below:
 ===========================  EXAMPLE  ======================
 <task>
 {
-  "description": "Get the most-liked song in my Spotify playlists.",
   "query": "Using these APIs, now generate code to solve the actual task:\n\nMy name is: Joyce Weaver. My personal email is joyce-weav@gmail.com and phone number is 3155673041.\n\nTask:\n\nWhat is the title of the most-liked song in my Spotify playlists.",
   "confidence": 1.0,
   "action_sequence": "# step0\nprint(apis.api_docs.show_app_descriptions())\n# step1\nprint(apis.api_docs.show_api_descriptions(app_name='supervisor'))\n# step2\nprint(apis.api_docs.show_api_doc(app_name='supervisor', api_name='show_account_passwords'))\n# step3\nprint(apis.supervisor.show_account_passwords())\npasswords = apis.supervisor.show_account_passwords()\n# step4\nspotify_password = [account_password for account_password in passwords if account_password[\"account_name\"] == \"spotify\"][0][\"password\"]\nprint(spotify_password)\n# step5\nprint(apis.api_docs.show_api_descriptions(app_name='spotify'))\n# step6\nprint(apis.api_docs.show_api_doc(app_name='spotify', api_name='show_playlist_library'))\n# step7\nprint(apis.api_docs.show_api_doc(app_name='spotify', api_name='login'))\nprint(apis.api_docs.show_api_doc(app_name='supervisor', api_name='show_profile'))\n# step8\nemail = apis.supervisor.show_profile()['email']\naccess_token = apis.spotify.login(username=email, password=spotify_password)['access_token']\nplaylist_0 = apis.spotify.show_playlist_library(page_index=0, access_token=access_token)\nprint(apis.api_docs.show_api_doc(app_name='spotify', api_name='show_song'))\nlike_count = apis.spotify.show_song(song_id=136)['like_count']\n# step9\npage_index = 0\nsong_ids_all = []\nwhile True:\n    playlists = apis.spotify.show_playlist_library(page_index=page_index, access_token=access_token)\n    if not playlists:\n        break\n    for _ in playlists:\n        song_ids_all.extend(_['song_ids'])\n    page_index += 1\nprint(song_ids_all)\n\nmax_id = -1\nmax_like_count = 0\nfor _ in song_ids_all:\n    like_count = apis.spotify.show_song(song_id=_)['like_count']\n    max_like_count = max(max_like_count, like_count)\n    if max_like_count == like_count:\n        max_id = _\nanswer = apis.spotify.show_song(song_id=max_id)['title']\nprint(answer)\napis.supervisor.complete_task(answer=answer)"
@@ -129,8 +127,7 @@ def parse_tasks_from_response(task: Task, response: str) -> list[TaskObjective]:
 
             # 检查必要字段
             if (
-                "description" not in t
-                or "query" not in t
+                "query" not in t
                 or "confidence" not in t
                 or "action_sequence" not in t
             ):
@@ -139,7 +136,6 @@ def parse_tasks_from_response(task: Task, response: str) -> list[TaskObjective]:
             tasks.append(
                 TaskObjective(
                     task=task,
-                    description=t["description"],
                     confidence=t["confidence"],
                     ground_truth=t["action_sequence"],
                     reward=None,
