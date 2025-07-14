@@ -186,7 +186,7 @@ class TaskRunner:
         llm_client=DashScopeClient(model_name=config.task_manager.llm_client)
         train_task_manager=TaskManager(
             config=config,
-            llm_client=llm_client, # TODO: use policy model
+            llm_client=llm_client, # or use policy model
             old_retrival=NaiveTaskObjectiveRetrieval(),
             tokenizer=tokenizer,
             env_service_url=config.env_service.env_url,
@@ -195,10 +195,11 @@ class TaskRunner:
             num_explore_threads=config.task_manager.num_explore_threads,
             n=config.task_manager.n,
             task_summary_history_length=config.task_manager.task_summary_history_length,
+            use_original_tasks=config.task_manager.use_original_tasks
         )
         val_task_manager=TaskManager(
             config=config,
-            llm_client=llm_client, # TODO: use policy model
+            llm_client=llm_client, # or use policy model
             old_retrival=NaiveTaskObjectiveRetrieval(),
             tokenizer=tokenizer,
             env_service_url=config.env_service.env_url,
@@ -207,6 +208,7 @@ class TaskRunner:
             num_explore_threads=config.task_manager.num_explore_threads,
             n=config.task_manager.n,
             task_summary_history_length=config.task_manager.task_summary_history_length,
+            use_original_tasks=config.task_manager.use_original_tasks
         )
         trainer = BeyondAgentRayPPOTrainer(
             config=config,
