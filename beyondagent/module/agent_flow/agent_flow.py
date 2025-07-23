@@ -47,7 +47,7 @@ class AgentFlow(BaseAgentFlow):
         for act_step in range(self.max_steps):
             # if use qwen3, add /no_think
             if self.config.actor_rollout_ref.rollout.use_qwen3:
-                trajectory.steps[-1]["content"] = " /no_think     "+trajectory.steps[-1]["content"]
+                trajectory.steps[-1]["content"] += " /no_think"
 
             prompt_text = self.tokenizer.apply_chat_template(trajectory.steps, 
                                                              tokenize=False,
