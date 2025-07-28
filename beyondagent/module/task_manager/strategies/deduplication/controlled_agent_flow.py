@@ -8,40 +8,58 @@ from beyondagent.client.em_client import EMClient
 from beyondagent.client.env_client import EnvClient
 from beyondagent.module.agent_flow.base_agent_flow import BaseAgentFlow
 from beyondagent.module.agent_flow.reward_calculator import RewardCalculator
+from beyondagent.module.task_manager.strategies.deduplication.embedding import StateRecorder
 from beyondagent.schema.trajectory import Trajectory
 from beyondagent.utils.utils import convert_tool_to_user_message, clip_state_content_correctly
 
 
-class AgentFlow(BaseAgentFlow):
+# I want a extensible AgentFlow rather than patch.
+class ControlledAgentFlow(BaseAgentFlow):
 
-    def __init__(self,reward_calculator:Optional[RewardCalculator]=None, **kwargs):
+    def __init__(self,state_recorder:StateRecorder,reward_calculator:Optional[RewardCalculator]=None, max_record_len:int=200, **kwargs):
         super().__init__(**kwargs)
+        self._state_recorder=state_recorder
+        # 优先传入的参数
         self._reward_calculator = reward_calculator
+        self._max_record_len=max_record_len
         if self._reward_calculator is not None:
             logger.info(f"reward_calculator={self._reward_calculator}")
-        self._enable_context_generator=self.config.experience_maker.enable_context_generator
+        self._enable_context_generator=False
 
         self.instruction_template_ids = self.tokenizer.encode("<|im_start|>user\n")
         self.response_template_ids = self.tokenizer.encode("<|im_start|>assistant\n")
         self.em_client = EMClient(base_url=self.config.experience_maker.base_url)
+        
 
     def execute(self, trajectory: Trajectory, env: EnvClient, instance_id: str, **kwargs) -> Trajectory:
-        # In some cases, context_generator will be disabled by setting self._enable_context_generator to False.
-        if self._enable_context_generator:
-            history_experience = self.em_client.call_context_generator(
-                trajectory=trajectory,
-                retrieve_top_k=self.config.experience_maker.retrieve_top_k,
-                workspace_id=self.config.experience_maker.workspace_id)
-
-            if history_experience:
-                logger.info(f"history_experience={history_experience}")
-                new_content = history_experience + "\n\n" + trajectory.steps[-1]["content"]
-                trajectory.steps[-1]["content"] = new_content
-            else:
-                logger.info(f"history_experience is empty!")
-
         request_id: str = ""
+        trajectory=trajectory.copy(deep=True) # clone the trajectory to avoid side effect
         for act_step in range(self.max_steps):
+            # remove old system prompt
+            new_steps=[]
+            for i in trajectory.steps:
+                if i['role']=='system':
+                    if i['content'].find('In the past interactions at this place, you have output these action and observed these states already:')>=0:
+                        continue
+                new_steps.append(i)
+            trajectory.steps=new_steps
+            # add exploration instruction
+            records=self._state_recorder.get_state(trajectory)
+            if len(records)>0:
+                instruction="In the past interactions at this place, you have output these action and observed these states already:\n"
+                for id, record in enumerate(records):
+                    instruction+=f"## {id+1}.\n"
+                    instruction+=f"[action]\n{record[0][:self._max_record_len]}\n\n"
+                    instruction+=f"[state]\n{record[1][:self._max_record_len]}\n\n"
+                instruction+="## Continue your work."
+                instruction+="Please continue your work. You are not expected to repeat the action you have already observed." # TODO: better strategy
+                logger.debug(f"retrieve #records={len(records)}, #instruction={len(instruction)}")
+                
+                trajectory.steps.append({"role":"user","content":instruction})
+            
+            assert len(trajectory.steps)>2
+            assert trajectory.steps[0]['role'] == 'system'
+            
             # if use qwen3, add /no_think
             if self.config.actor_rollout_ref.rollout.use_qwen3:
                 trajectory.steps[-1]["content"] += " /no_think"
@@ -55,7 +73,7 @@ class AgentFlow(BaseAgentFlow):
             # because the message-type output will be applied chat_template.
             max_response_length = self.config.actor_rollout_ref.rollout.response_length
             if current_token_len + max_response_length > self.max_model_len:
-                logger.warning(f"exceed max model len={self.max_model_len}")
+                logger.warning(f"exceed max model, current_token_len={current_token_len}, max_response_length={max_response_length}, max_model_len={self.max_model_len}")
                 break
 
             enable_request_id = False
@@ -64,7 +82,7 @@ class AgentFlow(BaseAgentFlow):
                 assert isinstance(enable_request_id, bool), f"enable_request_id is bool value"
 
             t_start = time.time()
-            request_id = request_id if enable_request_id else None
+            request_id = request_id if enable_request_id else None # type: ignore
             # callback llm server, messages.size=1
             llm_output: dict = {}
             try:
@@ -86,6 +104,7 @@ class AgentFlow(BaseAgentFlow):
             logger.info(f"info_dict={json.dumps(info_dict)}")
 
             request_id = new_request_id
+            old_trajectory=trajectory.copy()
             trajectory.steps.append(llm_output)
 
             try:
@@ -113,19 +132,17 @@ class AgentFlow(BaseAgentFlow):
                 
 
                 trajectory.steps.append(sanitize_env_state(env_message))
+                # log state
+                # 使用未执行 action 的 trajectory 作为 key
+                self._state_recorder.add_state(old_trajectory, llm_output['content'], env_message['content'])
             trajectory.is_terminated = env_output["is_terminated"]
-            # TODO require env
-            # trajectory.reward.outcome = env_output["reward"]["outcome"]
-            # trajectory.reward.description = env_output["reward"]["description"]
-            # trajectory.reward.outcome = env_output["reward"]
-            # trajectory.reward.description = "Outcome 1 = success, 0 = failure."
-
+            
             if trajectory.is_terminated:
                 break
         if self._reward_calculator is not None:
             score = self._reward_calculator.calculate_reward(trajectory, env)
         else:
-            score = env.evaluate(instance_id, params={"sparse": True})
+            score = env.evaluate(instance_id, params={"sparse": False})
         trajectory.reward.outcome = score
         trajectory.reward.description = "Outcome 1 = success, 0 = failure."
 

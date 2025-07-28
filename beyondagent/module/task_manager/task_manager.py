@@ -35,6 +35,8 @@ from beyondagent.module.task_manager.explorer import EnvWorkerWithPrompt
 from beyondagent.module.task_manager.filters.filters import NaiveTaskPostFilter, TaskPostFilter
 
 from beyondagent.module.task_manager.base import LlmClient, TaskObjectiveRetrieval
+from beyondagent.module.task_manager.strategies.deduplication import LlmDedupSamplingExploreStrategy
+from beyondagent.module.task_manager.strategies.random import LlmRandomSamplingExploreStrategy
 from beyondagent.schema.task import Task, TaskObjective
 from beyondagent.schema.trajectory import Trajectory
 from verl.utils.dataset.rl_dataset import RLHFDataset
@@ -43,14 +45,14 @@ class TaskManagerProps(TypedDict):
     num_explore_threads: int
     n: int # 重复探索的控制必须放在这里，task manager 要规划 task 执行顺序，避免在同时探索相同任务导致潜在的 query 重复
 
-# TODO: 能够替换的 exploration & extraction (summary) strategy
 
 class TaskManager(object):
 
     def __init__(
         self,
         config: DictConfig,
-        exploration_strategy: TaskExploreStrategy,
+        exploration_strategy: str,
+        exploration_strategy_args,
         llm_client: LlmClient,
         old_retrival: TaskObjectiveRetrieval,
         mixture_strategy: MixtureStrategy,
@@ -59,7 +61,7 @@ class TaskManager(object):
         **kwargs: Unpack[TaskManagerProps],
     ):
         self._config = config
-        self._exploration_strategy=exploration_strategy
+        self._exploration_strategy=get_exploration_strategy(exploration_strategy,exploration_strategy_args,tokenizer=tokenizer,config=config)
         self._llm_client = llm_client
         self._old_retrival = old_retrival
         self._mixture_strategy = mixture_strategy
@@ -202,6 +204,16 @@ class TaskManager(object):
         """
         return self._exploration_strategy.summarize(task, trajectory)
 
+
+def get_exploration_strategy(name:str, strategy_args, *, tokenizer, config)->TaskExploreStrategy:
+    """Get exploration strategy by name."""
+    logger.info(f"loading exploration strategy {name}")
+    if name=="random":
+        return LlmRandomSamplingExploreStrategy(tokenizer=tokenizer,config=config,**strategy_args)
+    elif name == "deduplication":
+        return LlmDedupSamplingExploreStrategy(tokenizer=tokenizer,config=config,**strategy_args)
+    else:
+        raise NotImplementedError(f"exploration strategy {name} not implemented")
 
 
 class FullDataset(Dataset):
