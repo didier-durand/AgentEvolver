@@ -111,7 +111,9 @@ class LlmFilter(TaskPostFilter):
                 tokenizer=self._tokenizer,
                 config=self._config,
             )
-            traj = worker.execute("unknown", "unknown", agent_flow)
+            assert task.objective is not None, "synthetic data must have objective"
+            assert task.ground_truth is not None, "synthetic data must have ground-truth"
+            traj = worker.execute("unknown", "unknown", agent_flow,system_prompt=make_solver_tip_prompt(task.objective,task.ground_truth))
             
             return self._validate(task, traj)
         except Exception as e:
@@ -294,3 +296,16 @@ class EvaluationPrompts:
         ]
         
         return messages
+
+
+
+def make_solver_tip_prompt(query: str, gt:str):
+    return f"""You are an AI assistant helping to complete tasks in an interactive environment.
+Feel free to use the tips to help you complete the task. The tips include a potential step-by-step solution to the task, but I do not ensure it is correct.
+
+Your Query:
+{query}
+
+Tips:
+{gt}
+"""
