@@ -35,8 +35,14 @@ class DashScopeClient:
             "Content-Type": "application/json"
         }
     
+    def set_model(self, model_name: str):
+        self.model_name = model_name
+    
     def chat(self, messages: list[dict[str, str]], sampling_params: dict[str, Any]) -> str:
-        return self.chat_with_retry(messages, **sampling_params)
+        res = ""
+        for x in self.chat_stream(messages, sampling_params):
+            res += x
+        return res
     
     def chat_stream(self, messages: list[dict[str, str]], sampling_params: dict[str, Any]) -> Generator[str, None, None]:
         """流式聊天，返回生成器"""

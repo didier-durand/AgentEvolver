@@ -24,8 +24,6 @@ class ControlledAgentFlow(BaseAgentFlow):
         # 优先传入的参数
         self._reward_calculator = reward_calculator
         self._max_record_len=max_record_len
-        if self._reward_calculator is not None:
-            logger.info(f"reward_calculator={self._reward_calculator}")
         self._enable_context_generator=False
 
         self.instruction_template_ids = self.tokenizer.encode("<|im_start|>user\n")
@@ -128,7 +126,6 @@ Now decide the single best next action.""".strip()
                 "request_id": request_id,
                 "time_cost": time_cost,
             }
-            logger.info(f"info_dict={json.dumps(info_dict)}")
 
             request_id = new_request_id
             old_trajectory=trajectory.copy()

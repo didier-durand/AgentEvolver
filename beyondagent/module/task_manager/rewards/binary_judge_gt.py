@@ -44,6 +44,10 @@ Score 1 ONLY if ALL conditions are met:
 - Final output resolves user's request, or user's request is unrealistic and best effort is done (Check this by your own knowledge). 
 Score 0 if ANY condition fails
 
+To evaluate the steps, we provide you with a reference solution to compare against. Please note that this solution demonstrates a correct approach and outcome, but it may not be the *only* correct way to solve the task. A different but equally valid solution should also be considered successful.
+
+{reference_trajs}
+
 ### Mandatory Constraints
 - Never combine scores or calculate totals
 - Critical failure overrides all other checks
@@ -51,7 +55,7 @@ Score 0 if ANY condition fails
 
 ### Output
 **Strictly follow this sequence:**
-1. Perform Step 1 → Step 2 → Step 3 evaluations in order
+1. Perform Step 1, Step 2, Step 3 evaluations in order
 2. Generate analysis covering all evaluation steps
 3. Finaly output the evaluation result with the following FORMAT:
 Reason: [Reason for score]
@@ -69,7 +73,7 @@ Correct Completion: [0/1]
 Perform evaluation steps sequentially before generating output.
 """
 
-USER_PROMPT_WITH_MEAN_CONSTRAINT = USER_PROMPT+"""
+USER_PROMPT_WITH_MEAN_CONSTRAINT=USER_PROMPT+"""
 Over the past period of time, the average score you gave to some samples was {running_mean:.4f}.
 Please note that the average score must be maintained around {mean_score:.4f} (+-0.2), or you will be penalized.
 """
@@ -96,10 +100,8 @@ def steps_to_msg(steps: list[dict[str, Any]]) -> str:
         trajectory_text += block.strip() + "\n\n"
     return trajectory_text
 
-
-
-@grader_manager.reg("llm-binary")
-class LlmAsJudgeBinaryRewardCalculator(RewardCalculator):
+@grader_manager.reg("llm-binary-gt")
+class LlmAsJudgeBinaryRewardCalculatorWithGT(RewardCalculator):
     """
     RewardCalculator that uses LLM as judge.
     """
@@ -114,7 +116,7 @@ class LlmAsJudgeBinaryRewardCalculator(RewardCalculator):
     def __init__(self, task: Task, model_name='qwq-plus', use_mean_constraint=True):
         super().__init__(task)
 
-        self._client = DashScopeClient(model_name=model_name,temperature=1.0)
+        self._client = DashScopeClient(model_name=model_name)
         self._use_mean_constraint = use_mean_constraint
 
     @classmethod
@@ -150,19 +152,22 @@ class LlmAsJudgeBinaryRewardCalculator(RewardCalculator):
         assert len(trajectory.steps) >= 2 and trajectory.steps[1]['role'] == 'user', "trajectory must start with system message and then user message"
         task_query = trajectory.steps[1]['content']
         
+        # TODO 至少现在我们的合成任务 gt 一定不是空的
+        assert self.task.ground_truth is not None, "ground truth must not be None for synthetic task"
         if self._use_mean_constraint:
             content=USER_PROMPT_WITH_MEAN_CONSTRAINT.format(
                 task=task_query, 
                 trajs=steps_to_msg(trajectory.steps[2:]),
                 running_mean=self.get_running_mean(),
                 mean_score=self.get_stable_mean(),
+                reference_trajs=self.task.ground_truth or "[No solution provided, please judge the task by yourself]"
             )
         else:
             content=USER_PROMPT.format(
                 task=task_query, 
                 trajs=steps_to_msg(trajectory.steps[2:]),
+                reference_trajs=self.task.ground_truth or "[No solution provided, please judge the task by yourself]"
             )
-        
         messages.append(
             {
                 "role": "user",
@@ -223,7 +228,7 @@ class LlmAsJudgeBinaryRewardCalculator(RewardCalculator):
         else:
             return score, response
 
-@grader_manager.reg("llm-binary-no_constraint")
-class LlmAsJudgeBinaryRewardCalculatorNoConstraint(LlmAsJudgeBinaryRewardCalculator):
+@grader_manager.reg("llm-binary-gt-no_constraint")
+class LlmAsJudgeBinaryRewardCalculatorWithGTNoConstraint(LlmAsJudgeBinaryRewardCalculatorWithGT):
     def __init__(self, task: Task, model_name='qwq-plus'):
         super().__init__(task, model_name, use_mean_constraint=False)

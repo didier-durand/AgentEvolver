@@ -29,8 +29,6 @@ class AgentFlow:
         self._env_client=env_client
         self._instance_id=instance_id
         self._reward_calculator = reward_caculator
-        if self._reward_calculator is not None:
-            logger.info(f"reward_calculator={self._reward_calculator}")
         
         self._max_steps = max_steps
         self._max_model_len = max_model_len
@@ -62,7 +60,6 @@ class AgentFlow:
             "request_id": self._request_id,
             "time_cost": time_cost,
         }
-        logger.info(f"info_dict={json.dumps(info_dict)}")
 
         self._request_id = new_request_id
         trajectory.steps.append(llm_output)

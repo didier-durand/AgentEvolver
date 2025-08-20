@@ -1,7 +1,8 @@
-from typing import cast
+from typing import Any, cast
 from beyondagent.client.env_client import EnvClient
 from beyondagent.client.llm_client import DashScopeClient
-from beyondagent.module.agent_flow.reward_calculator import RewardCalculator
+from beyondagent.module.agent_flow.reward_calculator import GraderResult, RewardCalculator
+from beyondagent.schema.task import Task
 from beyondagent.schema.trajectory import Trajectory
 
 from . import grader_manager
@@ -54,6 +55,29 @@ Provide your detailed analysis first, explaining your reasoning for each evaluat
 First provide your detailed reasoning analysis, then output an integer score between 0-40 or 60-100 enclosed in <reward></reward> tags, e.g., <reward>75</reward>
 """
 
+
+def steps_to_msg(steps: list[dict[str, Any]]) -> str:
+    # 添加轨迹消息（将所有对话转换为一个连贯的文本）
+    trajectory_text = ""
+    assert steps[0]['role'] == 'assistant'
+    for i, msg in enumerate(steps):
+        role = msg.get("role", "unknown")
+        if role == 'assistant':
+            block = f""">>> STEP {i} <<<
+<|ACTION|>
+{msg['content']}
+<|END|>
+"""
+        elif role == "user":
+            block = f"""<|OBSERVATION|>
+{msg['content']}
+<|END|>
+"""
+        else:
+            raise ValueError("roles in trajectory must be assistant or user")
+        trajectory_text += block.strip() + "\n\n"
+    return trajectory_text
+
 @grader_manager.reg("llm")
 class LlmAsJudgeRewardCalculator(RewardCalculator):
     """
@@ -61,7 +85,8 @@ class LlmAsJudgeRewardCalculator(RewardCalculator):
     
     TODO: This is a temperary solution for synthetic data.
     """
-    def __init__(self, model_name='qwq-plus'):
+    def __init__(self,task:Task, model_name='qwq-plus'):
+        super().__init__(task)
         self._client=DashScopeClient(model_name=model_name)
     
     def pack_message(self, trajectory: Trajectory):
@@ -73,19 +98,22 @@ class LlmAsJudgeRewardCalculator(RewardCalculator):
         messages=[]
         
         # 添加轨迹消息（将所有对话转换为一个连贯的文本）
+        assert len(trajectory.steps) >= 2 and trajectory.steps[1]['role'] == 'user', "trajectory must start with system message and then user message"
+        query=trajectory.steps[1]['content']
+        trajectory_text = f"Query: {query}\n"
         trajectory_text = "The following is the dialogue trace of the task execution:\n\n"
-        for i, msg in enumerate(trajectory.steps):
-            role = msg.get("role", "unknown")
-            content = msg.get("content", "")
-            trajectory_text += f"{role.upper()}: {content}\n\n"
+        trajectory_text+=steps_to_msg(trajectory.steps[2:])
         
         messages.append({"role": "user", "content": trajectory_text})
         messages.append({"role":"user","content":USER_PROMPT})
         return messages
     
-    def calculate_reward(self, trajectory: Trajectory, env: EnvClient) -> float:
-        x=cast(float,self._calculate_reward(trajectory,env,eject_llm_output=False))
-        return x
+    def calculate_reward(self, trajectory: Trajectory, env: EnvClient, instance_id: str) -> GraderResult:
+        x,reason=cast(tuple[float,str],self._calculate_reward(trajectory,env,eject_llm_output=True))
+        return {
+            "score":x,
+            "reason":reason
+        }
         
 
     def _calculate_reward(self, trajectory: Trajectory, env:EnvClient, *, eject_llm_output:bool=False):
