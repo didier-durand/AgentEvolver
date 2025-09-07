@@ -190,15 +190,10 @@ class TaskRunner:
         
         # init task manager
         llm_client=DashScopeClient(model_name=config.task_manager.llm_client)
-        assert config.task_manager.strategy == "random", "only random strategy is supported now"
-        strategy=LlmRandomSamplingExploreStrategy(
-            tokenizer=tokenizer,
-            config=config,
-            **config.task_manager.strategy_args
-        )
         train_task_manager=TaskManager(
             config=config,
-            exploration_strategy=strategy,
+            exploration_strategy=config.task_manager.strategy,
+            exploration_strategy_args=config.task_manager.strategy_args,
             llm_client=llm_client, # or use policy model
             old_retrival=NaiveTaskObjectiveRetrieval(),
             mixture_strategy=UnifiedMixtureStrategy(
@@ -207,6 +202,7 @@ class TaskRunner:
                 shuffle=config.task_manager.mixture.shuffle,
                 seed=42,
                 ),
+            reward_config=config.task_manager.grader,
             tokenizer=tokenizer,
             env_service_url=config.env_service.env_url,
             num_explore_threads=config.task_manager.num_explore_threads,
@@ -214,10 +210,12 @@ class TaskRunner:
         )
         val_task_manager=TaskManager(
             config=config,
-            exploration_strategy=strategy,
+            exploration_strategy=config.task_manager.strategy,
+            exploration_strategy_args=config.task_manager.strategy_args,
             llm_client=llm_client, # or use policy model
             old_retrival=NaiveTaskObjectiveRetrieval(),
             mixture_strategy=OriginalOnlyStrategy(),
+            reward_config=config.task_manager.grader,
             tokenizer=tokenizer,
             env_service_url=config.env_service.env_url,
             num_explore_threads=config.task_manager.num_explore_threads,

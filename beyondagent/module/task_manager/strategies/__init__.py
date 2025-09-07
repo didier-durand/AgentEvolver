@@ -12,16 +12,23 @@ class TaskExploreStrategy(abc.ABC):
     
     It provides nescessary contexts.
     """
-    def _inject_deps(self,old_retrival: TaskObjectiveRetrieval,llm_client: LlmClient):
+    def _inject_deps(self,old_retrival: TaskObjectiveRetrieval,llm_client_explore: LlmClient, llm_client_summarize: LlmClient):
         self._old_retrival = old_retrival
         # TODO: where should I init the llm client
-        self._llm_client=llm_client
+        self._llm_client_explore=llm_client_explore
+        self._llm_client_summarize=llm_client_summarize
     
     @property
-    def llm_client(self):
-        if not hasattr(self,"_llm_client"):
+    def llm_client_explore(self):
+        if not hasattr(self,"_llm_client_explore"):
             raise AttributeError("llm_client is not injected")
-        return self._llm_client
+        return self._llm_client_explore
+    
+    @property
+    def llm_client_summarize(self):
+        if not hasattr(self,"_llm_client_summarize"):
+            raise AttributeError("llm_client is not injected")
+        return self._llm_client_summarize
     
     @property
     def old_retrival(self) -> TaskObjectiveRetrieval:

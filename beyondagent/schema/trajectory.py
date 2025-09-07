@@ -15,17 +15,6 @@ class Reward(BaseModel):
     def success(self) -> bool:
         return self.outcome > 0
 
-class TrajectoryDataClass(BaseModel):
-    data_id: str = Field(default="")
-    rollout_id: str = Field(default="")
-
-    steps: List[Dict[str, str]] = Field(default_factory=list)
-    query: str = Field(default="")
-
-    is_terminated: bool = Field(default=False)
-    reward: Reward = Field(default_factory=Reward)
-
-    metadata: dict = Field(default_factory=dict)
 
 class Trajectory(object):
     data_id: str = ""
@@ -35,13 +24,22 @@ class Trajectory(object):
     query: str = ""
 
     is_terminated: bool = False
-    reward: Reward = None
+    reward: Reward | None = None
 
     metadata: dict = {}
+    
+    def __init__(self,data_id:str="",rollout_id:str="",steps:List[dict]=[],query:str="",is_terminated:bool=False,reward:Reward|None=None,metadata:dict={}):
+        self.data_id = data_id
+        self.rollout_id = rollout_id
+        self.steps = steps
+        self.query = query
+        self.is_terminated = is_terminated
+        self.reward = reward
+        self.metadata = metadata
 
     @property
     def success(self) -> bool:
-        return self.reward.outcome > 0
+        return self.reward is not None and self.reward.outcome > 0
 
 
 class Sample(BaseModel):

@@ -9,7 +9,7 @@ ulimit -n 65535
 PROJECT_DIR="$(pwd)"
 CONFIG_PATH="$PROJECT_DIR/config"
 # completion_callback=none
-env_url=http://localhost:8000
+env_url=http://localhost:8080
 current_time=$(date "+%Y%m%d_%H%M%S")
 log_file="dlc_log_${current_time}.log"
 
@@ -73,7 +73,9 @@ python3 -m beyondagent.main_ppo \
     experience_maker.enable_summarizer=False \
     experience_maker.enable_context_generator=False \
     experience_maker.workspace_id="w1_qwen25_v2_${current_time}" \
-    task_manager.n=1 \
+    task_manager.n=7 \
+    env_service.env_type=bfcl \
+    task_manager.train_data_path=tasks_explored.train.bfcl0815.json \
     task_manager.mixture.synthetic_data_ratio=1.0 \
     task_manager.mixture.use_original_tasks=True \
     2>&1 | tee "$log_file" \

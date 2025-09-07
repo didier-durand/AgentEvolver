@@ -17,6 +17,8 @@ actor_rollout_ref:
   hybrid_engine: True
   actor:
     loss_agg_mode: token-mean
+    clip_ratio_high: 0.28
+    ppo_mini_batch_size: 4
     off_cliprange_high: 1.0   # off-policy样本的cliph
   rollout:
     name: vllm
@@ -32,9 +34,9 @@ actor_rollout_ref:
       path: ""
       name: ""
     use_qwen3: True
+    max_env_worker: 32
     context_template: "linear"
     context_template_train_sp_action: False
-    max_env_worker: 64
     max_model_len: 20480
     max_env_len: 4096
     enable_request_id: False
@@ -42,12 +44,18 @@ actor_rollout_ref:
     magnify_success: False
     train_history_infer_token: True
 
+    magnify_success: False
+    train_history_infer_token: True
+  model:
+    path: /mnt/data/zouanni.zan/models/Qwen2.5-14B-Instruct
+    
+
 thread_pool:
   max_workers: 5
 
 env_service:
   env_type: "appworld"
-  env_url: "http://127.0.0.1:8000"
+  env_url: "http://127.0.0.1:8080"
   env_feedin_preference: code # code, text, box
 
 task_manager:
@@ -61,18 +69,37 @@ task_manager:
 
   mixture:
     use_original_tasks: True
+    original_data_ratio: 1.0
     synthetic_data_ratio: 0.0
     shuffle: True
 
+  grader:
+    original_grader: env
+    synthetic_grader: llm
+
   strategy: random
   strategy_args:
-    max_explore_step: 15
+    max_explore_step: 30
     max_llm_retries: 3
     env_url: ${env_service.env_url}
     exploration_llm_temperature: 1.0
     exploration_llm_top_p: 1.0
-    exploration_llm_top_k: 1
-    task_summary_history_length: 10 # the size of sliding windows used in task summarization
+    exploration_llm_top_k: 100
+  
+  # strategy: deduplication
+  # strategy_args:
+  #   max_explore_step: 20
+  #   max_llm_retries: 3
+  #   env_url: ${env_service.env_url}
+  #   exploration_llm_temperature: 1.0
+  #   exploration_llm_top_p: 1.0
+  #   exploration_llm_top_k: 1
+  #   task_summary_history_length: 10 # the size of sliding windows used in task summarization
+
+  #   # where to cache the embeddings
+  #   temp_db_path: ./.temp_vec_db
+  #   # similarity threshold. two trajectories are considered arriving at the same state if their embeddings are above this threshold.
+  #   state_similarity_threshold: 0.95
 
 
 experience_maker:

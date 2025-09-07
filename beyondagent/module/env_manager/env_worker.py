@@ -1,3 +1,4 @@
+from typing import Optional
 import uuid
 
 from omegaconf import DictConfig
@@ -26,32 +27,25 @@ class EnvWorker(object):
         self.thread_index: int = thread_index
         self.tokenizer = tokenizer
 
-    def execute(
-            self,
-            data_id: str,
-            rollout_id: str,
-            add_exp: bool,
-            task_train_exp_mode: str,
-            agent_flow: BaseAgentFlow,
-            tmux: dict,
-            stop: List[bool],
-            **kwargs
-        ) -> Trajectory:    # add add_exp & task_train_exp_mode by ANNI
-
+    def execute(self, data_id: str, rollout_id: str, add_exp: bool, task_train_exp_mode: str,agent_flow: BaseAgentFlow, tmux:dict,stop:list[bool], system_prompt: Optional[str] = None, **kwargs) -> Trajectory:    # add add_exp & task_train_exp_mode by ANNI
+        trajectory: Trajectory = Trajectory(data_id=data_id, rollout_id=rollout_id, steps=[], query="")
         try:
             init_response = self.env.create_instance(env_type=self.env_type,
                                                     task_id=self.task_id,
                                                     instance_id=self.instance_id)
 
             init_messages: list[dict] = init_response["state"]
-            state_message: list[dict] = init_response["state"]
-            assert isinstance(state_message, list) and len(state_message)==2, "state_message must be list and its length must be 2"
+            assert isinstance(init_messages, list) and len(init_messages)==2, "init_messages must be list and its length must be 2"
             # replace query if new query is in task
             if self.task.query is not None:
-                assert state_message[-1]["role"] == "user", "the latest message from environment must be user query"
-                state_message[-1]["content"] = self.task.query
+                assert init_messages[-1]["role"] == "user", "the latest message from environment must be user query"
+                init_messages[-1]["content"] = self.task.query
             else:
-                self.task.query = state_message[-1]["content"]
+                self.task.query = init_messages[-1]["content"]
+            
+            # insert custom system prompt
+            if system_prompt is not None:
+                init_messages.insert(1, {"role": "user", "content": system_prompt})
 
             if self.config.actor_rollout_ref.rollout.context_template == "linear":
                 traj_cmt: Linear_CMT = Linear_CMT(self.config, self.tokenizer)
@@ -68,7 +62,7 @@ class EnvWorker(object):
             traj_cmt.instance_id = self.instance_id
             traj_cmt.task_train_exp_mode = self.task.metadata.get("task_train_exp_mode")
             traj_cmt.metadata["task_train_exp_mode"] = task_train_exp_mode
-            traj_cmt.query = state_message[-1]["content"]
+            traj_cmt.query = init_messages[-1]["content"]
 
             traj_cmt: Trajectory = agent_flow.execute(
                 context_manager=traj_cmt,
@@ -89,6 +83,6 @@ class EnvWorker(object):
 
         except Exception as e:
             self.env.release_instance(self.instance_id)
-            raise RuntimeError(f"env.create_instance failed! error={e.args}")
+            raise RuntimeError(f"env.create_instance failed! error={e.args}") from e
 
         return traj_cmt

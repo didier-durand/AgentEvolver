@@ -20,6 +20,7 @@ from typing import (
 import hydra
 from loguru import logger
 from omegaconf import DictConfig
+import requests
 from torch.utils.data import IterableDataset,Dataset
 from tqdm import tqdm
 from beyondagent.client.env_client import EnvClient
@@ -29,11 +30,14 @@ from beyondagent.module.agent_flow.base_agent_flow import BaseAgentFlow
 from beyondagent.module.task_manager import adapter
 from beyondagent.module.task_manager.adapter import OnflyRlDataset, to_rl_dataset
 from beyondagent.module.task_manager.data_mixture import MixtureStrategy, OriginalOnlyStrategy
+from beyondagent.module.task_manager.filters.llm_filter import LlmFilter
 from beyondagent.module.task_manager.strategies import TaskExploreStrategy
-from beyondagent.module.task_manager.explorer import Explorer
-from beyondagent.module.task_manager.filters import NaiveTaskPostFilter, TaskPostFilter
+from beyondagent.module.task_manager.explorer import EnvWorkerWithPrompt
+from beyondagent.module.task_manager.filters.filters import NaiveTaskPostFilter, TaskPostFilter
 
 from beyondagent.module.task_manager.base import LlmClient, TaskObjectiveRetrieval
+from beyondagent.module.task_manager.strategies.deduplication import LlmDedupSamplingExploreStrategy
+from beyondagent.module.task_manager.strategies.random import LlmRandomSamplingExploreStrategy
 from beyondagent.schema.task import Task, TaskObjective
 from beyondagent.schema.trajectory import Trajectory
 from verl.utils.dataset.rl_dataset import RLHFDataset
@@ -42,35 +46,41 @@ class TaskManagerProps(TypedDict):
     num_explore_threads: int
     n: int # 重复探索的控制必须放在这里，task manager 要规划 task 执行顺序，避免在同时探索相同任务导致潜在的 query 重复
 
-# TODO: 能够替换的 exploration & extraction (summary) strategy
+class RewardProps(TypedDict):
+    original_grader:str
+    synthetic_grader:str
 
 class TaskManager(object):
 
     def __init__(
         self,
         config: DictConfig,
-        exploration_strategy: TaskExploreStrategy,
+        exploration_strategy: str,
+        exploration_strategy_args,
         llm_client: LlmClient,
         old_retrival: TaskObjectiveRetrieval,
         mixture_strategy: MixtureStrategy,
+        reward_config: RewardProps,
         tokenizer,
         env_service_url: str,
         **kwargs: Unpack[TaskManagerProps],
     ):
         self._config = config
-        self._exploration_strategy=exploration_strategy
+        self._exploration_strategy=get_exploration_strategy(exploration_strategy,exploration_strategy_args,tokenizer=tokenizer,config=config)
         self._llm_client = llm_client
         self._old_retrival = old_retrival
         self._mixture_strategy = mixture_strategy
+        self._reward_config=reward_config
         self._env_service_url = env_service_url
         self._tokenizer = tokenizer  # cc: 这玩意似乎不该在这
         self._num_exploration_threads = kwargs["num_explore_threads"] or 10
         self._n = kwargs["n"]
 
-        self._filters: list[TaskPostFilter] = [NaiveTaskPostFilter()]
+        self._realtime_filters: list[TaskPostFilter] = [NaiveTaskPostFilter()]
+        self._post_filter: list[TaskPostFilter] = [LlmFilter(env_service_url,llm_client,self._num_exploration_threads,tokenizer=tokenizer,config=config)]
         
         self._tasks: list[Task]=[]
-        self._exploration_strategy._inject_deps(self._old_retrival,self._llm_client)
+        self._exploration_strategy._inject_deps(self._old_retrival,self._llm_client,DashScopeClient(model_name='qwq-plus',max_tokens=8192))
     
     @property
     def seed_tasks(self):
@@ -82,23 +92,23 @@ class TaskManager(object):
         logger.info(f"loaded tasks, #tasks={len(self._tasks)}")
         
     def load_tasks_from_dataset(self, dataset: RLHFDataset,*, env_type:str):
-        self._tasks.extend(adapter.convert_to_tasks(dataset,env_type=env_type))
+        self._tasks.extend(adapter.convert_to_tasks(dataset,env_type=env_type,grader=self._reward_config["original_grader"]))
         assert all([x.query is None for x in self._tasks]), "query of seed task must be empty"
         logger.info(f"loaded tasks from dataset, #tasks={len(self._tasks)}")
     
     def load_tasks_from_environment(self, env: EnvClient, *, env_type: str, split: str, params: Optional[dict] = None):
         try:
             response = env.get_env_profile(env_type, split, params)
-            self._tasks.extend([Task(task_id=str(x),env_type=env_type,evaluator='env') for x in response])
+            self._tasks.extend([Task(task_id=str(x),env_type=env_type,evaluator=self._reward_config["original_grader"]) for x in response])
             assert all([x.query is None for x in self._tasks]), "query of seed task must be empty"
             logger.info(f"loaded tasks from environment, #tasks={len(self._tasks)}")
-        except:
-            logger.error(f"failed to load tasks from environment")
+        except requests.exceptions.RequestException as e:
+            logger.error(f"failed to load tasks from environment: {e}")
             return 0
         return len(response)
 
     def register_filter(self, filter: TaskPostFilter):
-        self._filters.append(filter)
+        self._realtime_filters.append(filter)
 
     def get_onthefly_dataset(self, bs: int, tokenizer, config,processor):
         """
@@ -117,8 +127,8 @@ class TaskManager(object):
     def get_or_load_full_dataset(self,filepath:Optional[str],*,config,tokenizer,processor)->"FullDataset":
         """Get the full dataset, or load from file.
         """
-        seed_tasks=[TaskObjective(task=task,ground_truth='[env]',confidence=1.0,reward=None) for task in self._tasks]
-        dataset=FullDataset(self,seed_tasks,self._mixture_strategy,tokenizer=tokenizer,config=config,processor=processor)
+        seed_tasks=[TaskObjective(task=task,confidence=1.0,reward=None) for task in self._tasks]
+        dataset=FullDataset(self,seed_tasks,self._mixture_strategy,self._reward_config,tokenizer=tokenizer,config=config,processor=processor)
         
         if filepath is not None and os.path.exists(filepath):
             logger.info(f"loading full dataset from {filepath}")
@@ -133,8 +143,8 @@ class TaskManager(object):
     def get_original_dataset(self,*,tokenizer,config,processor)->"FullDataset":
         """Get the original dataset.
         """
-        seed_tasks=[TaskObjective(task=task,ground_truth='[env]',confidence=1.0,reward=None) for task in self._tasks]
-        dataset = FullDataset(self,seed_tasks,OriginalOnlyStrategy(),tokenizer=tokenizer,config=config,processor=processor)
+        seed_tasks=[TaskObjective(task=task,confidence=1.0,reward=None) for task in self._tasks]
+        dataset = FullDataset(self,seed_tasks,OriginalOnlyStrategy(),self._reward_config,tokenizer=tokenizer,config=config,processor=processor)
         dataset.load_from_file('[unknown]')
         return dataset
     
@@ -146,7 +156,7 @@ class TaskManager(object):
         # 每次最多探索所有不同任务，或者最大线程个任务，防止同批次中生成相同任务
         parallel_num = min(self._num_exploration_threads, len(tasks))
         with ThreadPoolExecutor(max_workers=self._num_exploration_threads) as pool:
-            for i in tqdm(range(0, len(task_q), parallel_num), disable=not show_progress):
+            for i in tqdm(range(0, len(task_q), parallel_num),desc="generating tasks", disable=not show_progress):
                 futures = [
                     pool.submit(self._exlore_and_summarize, task, data_id, rollout_id)
                     for task, data_id, rollout_id in zip(
@@ -157,13 +167,19 @@ class TaskManager(object):
                 ]
                 task_objectives = sum([future.result() for future in futures], [])
                 res.extend(task_objectives)
-                # post filter
-                res = functools.reduce(lambda x, f: f.filter(x), self._filters, res)
+                # realtime filter
+                res = functools.reduce(lambda x, f: f.filter(x), self._realtime_filters, res)
                 self._old_retrival.reset()
                 for i in res:
                     self._old_retrival.add_objective(i)
-                
-        
+                    
+        res = functools.reduce(lambda x, f: f.filter(x), self._realtime_filters, res)
+        # post filter
+        logger.info("running post filter on generated tasks")
+        cnt_before_filter=len(res)
+        res = functools.reduce(lambda x, f: f.filter(x), self._post_filter, res)
+        cnt_after_filter=len(res)
+        logger.info(f"finish post filter: #before={cnt_before_filter}, #after={cnt_after_filter}")
         random.shuffle(res) # shuffle
 
         return res
@@ -195,81 +211,100 @@ class TaskManager(object):
         return self._exploration_strategy.summarize(task, trajectory)
 
 
+def get_exploration_strategy(name:str, strategy_args, *, tokenizer, config)->TaskExploreStrategy:
+    """Get exploration strategy by name."""
+    logger.info(f"loading exploration strategy {name}")
+    if name=="random":
+        return LlmRandomSamplingExploreStrategy(tokenizer=tokenizer,config=config,**strategy_args)
+    elif name == "deduplication":
+        return LlmDedupSamplingExploreStrategy(tokenizer=tokenizer,config=config,**strategy_args)
+    else:
+        raise NotImplementedError(f"exploration strategy {name} not implemented")
+
+
+
+
 
 class FullDataset(Dataset):
-    """FullDataset with MixtureStrategy support"""
+    """FullDataset with MixtureStrategy support and auto-refresh after one DataLoader epoch"""
     
     def __init__(self, 
                  manager: TaskManager, 
                  tasks: Sequence[TaskObjective],
                  mixture_strategy: MixtureStrategy,
+                 reward_config:RewardProps,
                  *, 
                  tokenizer, 
                  config, 
                  processor):
-        """
-        Args:
-            manager: TaskManager实例
-            tasks: 原始任务列表
-            mixture_strategy: 数据混合策略，如果为None则使用默认的NoMixtureStrategy
-            tokenizer: tokenizer
-            config: 配置
-            processor: processor
-        """
         self._manager = manager
         self._tasks = list(tasks)
+        assert all([x.task.evaluator==reward_config["original_grader"] for x in tasks]), "task evaluator must be set as the config"
         self._mixture_strategy = mixture_strategy
+        self._reward_config=reward_config
         self._tokenizer = tokenizer
         self._config = config
         self._processor = processor
         self._objectives = []
         self._dataset = None
-    
+        self._synthetic_objectives = []
+        
+        # 标记是否需要在下一轮迭代开始前刷新
+        self._refresh_after_epoch = False
+
+    def _rebuild_dataset(self):
+        """使用混合策略重新生成 dataset"""
+        self._objectives = self._mixture_strategy.mix_data(self._synthetic_objectives, self._tasks)
+        self._dataset = to_rl_dataset(self._objectives, self._tokenizer, self._config, self._processor)
+        logger.info(f"Auto-refreshed dataset: #objectives={len(self._objectives)}, #rlhf={len(self._dataset)}")
+
+    def update(self):
+        """手动触发一次数据集重建"""
+        if not self._synthetic_objectives:
+            logger.warning("No synthetic objectives available, did you call load_from_file() or reload() first?")
+        self._rebuild_dataset()
+        logger.info("Dataset updated manually via update().")
+
     def set_mixture_strategy(self, strategy: MixtureStrategy):
-        """设置新的混合策略"""
         self._mixture_strategy = strategy
         logger.info(f"mixture strategy updated to: {type(strategy).__name__}")
     
     def save_to_file(self, filepath: str):
-        """保存objectives到文件"""
-        objectives_without_origins=list(filter(lambda x:x.task.evaluator!="env",self._objectives))
         with open(filepath, "w") as f:
-            f.writelines([ob.json() + "\n" for ob in objectives_without_origins])
+            f.writelines([ob.json() + "\n" for ob in self._synthetic_objectives])
         logger.info(f"Saved {len(self._objectives)} objectives to {filepath}")
     
     def load_from_file(self, filepath: str):
-        """从文件加载objectives"""
         if os.path.exists(filepath):
             with open(filepath, "r") as f:
-                synthetic_objectives = [
-                    TaskObjective.parse_raw(line) 
-                    for line in filter(lambda x: x.strip() != "", f.readlines())
-                ]
+                self._synthetic_objectives = []
+                for line in filter(lambda x: x.strip() != "", f.readlines()):
+                    tmp=TaskObjective.parse_raw(line)
+                    # patch old data
+                    if tmp.ground_truth is None:
+                        tmp.ground_truth = json.loads(line)['ground_truth']
+                    self._synthetic_objectives.append(tmp)
         else:
             logger.warning(f"failed to load objectives from {filepath}, file not found.")
-            synthetic_objectives = []
+            self._synthetic_objectives = []
         
-        # 使用混合策略处理数据
-        self._objectives = self._mixture_strategy.mix_data(synthetic_objectives, self._tasks)
+        for item in self._synthetic_objectives:
+            assert item.ground_truth is not None
         
-        # 转换为RL dataset
-        self._dataset = to_rl_dataset(self._objectives, self._tokenizer, self._config, self._processor)
-        logger.info(f"Loaded and mixed dataset: #objectives={len(self._objectives)}, #rlhf={len(self._dataset)}")
+        logger.info("patching grader config to all synthetic data")
+        for item in self._synthetic_objectives:
+            item.task.evaluator=self._reward_config["synthetic_grader"]
+        
+        self._rebuild_dataset()
     
     def reload(self):
-        """重新生成数据"""
-        # 生成合成数据
-        synthetic_objectives = self._manager.generate_task([x.task for x in self._tasks], show_progress=True)
-        
-        # 使用混合策略处理数据
-        self._objectives = self._mixture_strategy.mix_data(synthetic_objectives, self._tasks)
-        
-        # 转换为RL dataset
-        self._dataset = to_rl_dataset(self._objectives, self._tokenizer, self._config, self._processor)
-        logger.info(f"Reloaded and mixed dataset: #objectives={len(self._objectives)}, #rlhf={len(self._dataset)}")
+        self._synthetic_objectives = self._manager.generate_task([x.task for x in self._tasks], show_progress=True)
+        logger.info("patching grader config to all synthetic data")
+        for item in self._synthetic_objectives:
+            item.task.evaluator=self._reward_config["synthetic_grader"]
+        self._rebuild_dataset()
     
     def get_statistics(self) -> dict:
-        """获取数据集统计信息"""
         if not self._objectives:
             return {
                 "total": 0, 

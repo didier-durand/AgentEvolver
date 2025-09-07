@@ -12,7 +12,7 @@ from omegaconf import DictConfig, ListConfig
 from transformers.tokenization_utils import PreTrainedTokenizer
 from transformers.processing_utils import ProcessorMixin
 
-def convert_to_tasks(dataset:RLHFDataset,env_type:str)->list[Task]:
+def convert_to_tasks(dataset:RLHFDataset,env_type:str, grader:str)->list[Task]:
     """将来自环境的原本 RLHFDataset 转为供 TaskManager 使用的 Task 列表
     """
     res=[]
@@ -21,7 +21,7 @@ def convert_to_tasks(dataset:RLHFDataset,env_type:str)->list[Task]:
         task = Task(
             task_id=record["extras"]["task_id"],
             env_type=env_type,
-            evaluator="env",
+            evaluator=grader,
         )
         res.append(task)
     
@@ -39,6 +39,7 @@ def to_rl_dataset(
         task = task_obj.task
 
         # 构建 reward_model
+        # TODO 但现在的代码里似乎已经不用这个东西了
         ground_truth = [task_obj.ground_truth] if task_obj.ground_truth else []
 
         # 构建单条记录
@@ -51,6 +52,7 @@ def to_rl_dataset(
                 "task_id": task.task_id,
                 "new_query": task.query,
                 "evaluator": task.evaluator,
+                "ground_truth": task_obj.ground_truth, # 用于提供给一些 grader 使用
             },
         }
 

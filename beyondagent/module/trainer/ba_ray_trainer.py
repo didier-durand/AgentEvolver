@@ -43,7 +43,7 @@ from verl.single_controller.ray import RayClassWithInitArgs, create_colocated_wo
 from verl.single_controller.ray.base import RayWorkerGroup
 from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import agg_loss
-from verl.trainer.ppo.metric_utils import (compute_data_metrics,
+from beyondagent.utils.metric_utils import (compute_data_metrics,
                                            compute_throughout_metrics,
                                            compute_timing_metrics,
                                            process_validation_metrics)
@@ -62,7 +62,7 @@ from beyondagent.module.task_manager import adapter as task_adapter
 from beyondagent.module.task_manager import TaskManager,NaiveTaskObjectiveRetrieval
 from beyondagent.schema.task import Task
 from beyondagent.schema.trajectory import Trajectory
-from verl.utils.tracking import ValidationGenerationsLogger
+from beyondagent.utils.tracking import ValidationGenerationsLogger
 
 
 def parse_reward_from_dataproto(data: DataProto, return_dict=False) -> dict | torch.Tensor:
@@ -770,7 +770,8 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
         The light-weight advantage computation is done on the driver process.
         """
         from omegaconf import OmegaConf
-        from verl.utils.tracking import Tracking
+
+        from beyondagent.utils.tracking import Tracking
 
         logger = Tracking(
             project_name=self.config.trainer.project_name,
@@ -822,6 +823,9 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
                     non_tensor_batch_keys_to_pop.append("tools_kwargs")
                 if "extras" in batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("extras")
+                    batch_extras = deepcopy(batch.non_tensor_batch["extras"])
+                else:
+                    batch_extras = None
                 gen_batch = batch.pop(
                     batch_keys=batch_keys_to_pop,
                     non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
@@ -860,10 +864,11 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
                                         query=gen_batch.non_tensor_batch["extras"][i]['new_query'],
                                         env_type=self.config.env_service.env_type,
                                         evaluator=gen_batch.non_tensor_batch['extras'][i]['evaluator'],
+                                        ground_truth=gen_batch.non_tensor_batch['extras'][i]['ground_truth'],
                                         metadata={"task_train_exp_mode": mode}
                                     ) for i, mode in enumerate(task_train_exp_modes)
                             ]
-
+                            assert len(task_train_exp_modes)==len(gen_batch), "{len(task_train_exp_modes)=}, {len(gen_batch)=}"
                             # tasks = [Task(
                             #             task_id=gen_batch.non_tensor_batch["extras"][i]["task_id"],
                             #             query=gen_batch.non_tensor_batch["extras"][i]['new_query'],
@@ -875,6 +880,7 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
                             # TODO enable tracing by jinli 0619
                             print("=" * 10 + "start fit rollout" + "=" * 10)
                             trajectories = self.env_manager.rollout(tasks, mode="sample", epoch=f"train.{epoch}.{i}")
+                            assert len(trajectories)>0, "{len(trajectories)=}?"
                             print("=" * 10 + "end fit rollout" + "=" * 10)
 
                             gen_batch_output = self.env_manager.to_dataproto(trajectories)
@@ -910,9 +916,11 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
                             del gen_baseline_batch, gen_baseline_output
 
                     batch.non_tensor_batch["uid"] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object)
+
+                    # 在新的代码中，data rollout 后产生了一些新的 extra，这些 extra 应当和原始 extra 合并
+                    # assert len(gen_batch_output.non_tensor_batch["extras"].keys()&batch_extras.keys())==0, "extra of extra should not overlap with existing extra...how funny..."
+                    batch.non_tensor_batch['original_extras']=batch_extras # 在翻n倍前先赋值
                     batch = union_gen_batch_via_task_id(tasks, batch, gen_batch_output)
-                    batch.batch["response_mask"] = compute_response_mask(batch)
-                    # breakpoint()
 
                     batch.batch["response_mask"] = compute_response_mask(batch)
 
@@ -1087,7 +1095,12 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
                             with open(filename, "w") as f:
                                 for traj in trajectories:
                                     f.write(traj.json() + "\n")
-
+                            # save tasks
+                            filename = os.path.join(rollout_data_dir, f"task_{self.global_steps}.jsonl")
+                            with open(filename,"w") as f:
+                                for task in tasks: # this must be bounded # type: ignore
+                                    f.write(task.json() + "\n")
+                            
 
                     # validate
                     if self.val_reward_fn is not None and self.config.trainer.test_freq > 0 and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0):
@@ -1130,5 +1143,6 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
             # we expect the train dataset is fully explored at the beginning, no reload needed.
             # if isinstance(self.train_dataset, FullDataset):
             #     self.train_dataset.reload()
+            self.train_dataset.update()
 
 

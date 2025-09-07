@@ -15,7 +15,6 @@ from beyondagent.module.context_manager.cmt_linear import Linear_CMT, ExtendedMe
 from beyondagent.module.context_manager.cmt_linear_think import LinearThinkCMT
 from beyondagent.module.context_manager.cmt_context_clip import SelfContextClipCMT
 from beyondagent.module.agent_flow.reward_calculator import RewardCalculator
-from beyondagent.schema.trajectory import TrajectoryDataClass
 from typing import Any, Dict, List, Union, Optional
 import threading
 
@@ -25,10 +24,7 @@ class AgentFlow(BaseAgentFlow):
 
     def __init__(self, reward_calculator:Optional[RewardCalculator]=None, **kwargs):
         super().__init__(**kwargs)
-        # 优先传入的参数
         self._reward_calculator = reward_calculator
-        if self._reward_calculator is not None:
-            logger.info(f"reward_calculator={self._reward_calculator}")
         self._enable_context_generator=self.config.experience_maker.enable_context_generator
 
         self.instruction_template_ids = self.tokenizer.encode("<|im_start|>user\n")
@@ -42,7 +38,7 @@ class AgentFlow(BaseAgentFlow):
 
     def add_experience(self, init_messages, task_id, data_id, rollout_id, query, add_exp):
         if self._enable_context_generator and add_exp:
-            trajectory = TrajectoryDataClass(data_id=data_id, rollout_id=rollout_id, steps=init_messages, query=query)
+            trajectory = Trajectory(data_id=data_id, rollout_id=rollout_id, steps=init_messages, query=query)
             history_experience = self.em_client.call_context_generator(
                 trajectory=trajectory,
                 retrieve_top_k=self.config.experience_maker.retrieve_top_k,
@@ -102,6 +98,8 @@ class AgentFlow(BaseAgentFlow):
                 self.cmt.discarded = True
                 break
 
+            # TODO 这个在新代码里删掉了？
+            # trajectory.steps.append(llm_output)
             # 6. 💾 save llm output
             self.cmt.save_llm_output(llm_output, input_msg_ref=step_input_message_arr)
             tmux['token'][thread_index] += self.cmt.generated_token_cnt
@@ -109,6 +107,7 @@ class AgentFlow(BaseAgentFlow):
             # 7. 🌍 world interaction
             try:
                 env_output = env.step(instance_id, {"content": self.cmt.prepare_world_interaction(), "role": "assistant"})
+                assert len(env_output['state'])==1
                 env_output["state"] = env_output["state"][0]
                 if env_output["state"]["role"] == "tool":
                     env_output["state"] = convert_tool_to_user_message(env_output["state"], self.tokenizer, format="qwen")
@@ -141,14 +140,17 @@ class AgentFlow(BaseAgentFlow):
         tmux['step'][thread_index] = -1
 
         if self._reward_calculator is not None:
-            score = self._reward_calculator.calculate_reward(trajectory, env)
+            grader_res = self._reward_calculator.calculate_reward(self.cmt, env, instance_id)
+            score = grader_res["score"] 
+            reason = grader_res["reason"] or "No reason provided."
         else:
             score = env.evaluate(instance_id, params={"sparse": self.sparse})
+            reason = "Outcome 1 = success, 0 = failure."
 
         if score >= 1: success_rate = 1.0
         else: success_rate = 0.0
 
-        self.cmt.reward = Reward(outcome=score, success_rate=success_rate, madness=self.cmt.compute_madness(), description="Success=1, Failure=0")
+        self.cmt.reward = Reward(outcome=score, success_rate=success_rate, madness=self.cmt.compute_madness(), description=reason)
         self.cmt.reward = self.cmt.reward_patch(self.cmt.reward)
         self.cmt.remove_last_context()
 

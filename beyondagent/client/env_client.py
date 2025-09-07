@@ -2,6 +2,7 @@
 from typing import Dict, List, Any
 
 import requests
+from loguru import logger
 
 
 class EnvClient:
@@ -32,7 +33,8 @@ class EnvClient:
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
-            raise Exception(f"Request failed: {str(e)}, data: {data}")
+            logger.error(f"Request failed: {str(e)}, data: {data}")
+            raise
 
     def get_env_profile(
         self, env_type: str, split: str = "train", params: dict | None = None

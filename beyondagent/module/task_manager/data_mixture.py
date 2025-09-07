@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+import copy
 from typing import Sequence, List, Optional
 import random
 import math
@@ -78,8 +79,8 @@ class UnifiedMixtureStrategy(MixtureStrategy):
         mixed_objectives = []
         
         if self._use_original:
-            mixed_objectives.extend(original_tasks)
-            logger.info(f"added {len(original_tasks)} original tasks")
+            mixed_objectives.extend(copy.deepcopy(original_tasks))
+            logger.info(f"added {len(mixed_objectives)} original tasks")
         
         if self._synthetic_ratio > 0:
             target_synthetic_count = int(len(original_tasks) * self._synthetic_ratio)
@@ -95,11 +96,11 @@ class UnifiedMixtureStrategy(MixtureStrategy):
                 logger.info(f"added {len(selected_synthetic)} synthetic tasks (ratio={self._synthetic_ratio})")
         
         if self._shuffle:
+            logger.debug("shuffling data")
             rng.shuffle(mixed_objectives)
-        
-        original_count = len(original_tasks) if self._use_original else 0
-        synthetic_count = len(mixed_objectives) - original_count
-        logger.info(f"final mixture: {original_count} original + {synthetic_count} synthetic = {len(mixed_objectives)} total")
+
+        synthetic_count = len(mixed_objectives) - len(original_tasks)
+        logger.info(f"final mixture: {len(original_tasks)} original + {synthetic_count} synthetic = {len(mixed_objectives)} total")
         
         return mixed_objectives
     

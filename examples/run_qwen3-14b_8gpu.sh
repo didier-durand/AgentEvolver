@@ -58,8 +58,8 @@ python3 -m beyondagent.main_ppo \
     trainer.experiment_name="qwen3-14b_appworld_bs32_8gpu" \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
-    trainer.test_freq=20 \
-    trainer.total_epochs=15 \
+    trainer.test_freq=10 \
+    trainer.total_epochs=50 \
     trainer.val_before_train=True \
     trainer.validation_data_dir="experiments/exp_${current_time}/validation_log" \
     trainer.rollout_data_dir="experiments/exp_${current_time}/rollout_log" \
@@ -68,10 +68,13 @@ python3 -m beyondagent.main_ppo \
     actor_rollout_ref.ref.log_prob_max_token_len_per_gpu=20480 \
     critic.ppo_max_token_len_per_gpu=20480 \
     critic.forward_max_token_len_per_gpu=20480 \
-    data.train_files=/mnt/data_cpfs/zouanni.zan/data/appworld_parquet/train.parquet \
-    data.val_files=/mnt/data_cpfs/zouanni.zan/data/appworld_parquet/dev.parquet \
+    data.train_files=null \
+    data.val_files=null \
     experience_maker.enable_summarizer=False \
     experience_maker.enable_context_generator=False \
     experience_maker.workspace_id="w1_qwen25_v2_${current_time}" \
+    task_manager.n=0 \
+    task_manager.mixture.synthetic_data_ratio=0.0 \
+    task_manager.mixture.use_original_tasks=True \
     2>&1 | tee "$log_file" \
     $@

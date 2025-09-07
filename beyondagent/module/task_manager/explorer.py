@@ -4,12 +4,13 @@ import uuid
 from omegaconf import DictConfig
 
 from beyondagent.client.env_client import EnvClient
-from beyondagent.module.agent_flow.base_agent_flow import BaseAgentFlow
+from beyondagent.module.task_manager.agent_flow import ModifiedAgentFlow
 from beyondagent.schema.trajectory import Trajectory
 from loguru import logger
 
 
-class Explorer(object):
+# TODO replace this with new env worker
+class EnvWorkerWithPrompt(object):
 
     def __init__(
         self,
@@ -37,7 +38,7 @@ class Explorer(object):
         self,
         data_id: str,
         rollout_id: str,
-        agent_flow: BaseAgentFlow,
+        agent_flow: ModifiedAgentFlow,
         system_prompt: Optional[str] = None,
         **kwargs,
     ) -> Trajectory:
@@ -61,7 +62,13 @@ class Explorer(object):
             step:list[dict] = []
             step.extend(state_message)
             if system_prompt is not None:
-                step.insert(1, {"role": "user", "content": system_prompt})
+                step.insert(1, {"role": "system", "content": system_prompt})
+            
+            # replace the original query
+            # step[-1]["content"] = f"Now do your exploration!"
+            # FIXME
+            step[-1]["content"] = f"User may ask question like *\"{state_message[-1]['content']}\"*. You may explore related information, but **do not** answer the question. Now do your exploration!"
+            
             # Example of state_message after rearrangement
             # [
             #     {

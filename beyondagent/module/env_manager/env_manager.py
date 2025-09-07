@@ -1,7 +1,7 @@
 import copy
 import time
-from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List, Literal
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from typing import Dict, List, Literal, Tuple
 
 import numpy as np
 import torch
@@ -13,7 +13,6 @@ from omegaconf import DictConfig
 from tensordict import TensorDict
 from torch.nn.utils.rnn import pad_sequence
 from tqdm import tqdm
-from beyondagent.module.task_manager.reward import LlmAsJudgeRewardCalculator
 from verl import DataProto
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.torch_functional import (pad_sequence_to_length)
@@ -22,8 +21,11 @@ from beyondagent.module.agent_flow.agent_flow import AgentFlow
 from beyondagent.module.agent_flow.base_agent_flow import BaseAgentFlow
 from beyondagent.module.env_manager.env_worker import EnvWorker
 from beyondagent.module.trainer.ba_async_llm_server_manager import BaAsyncLLMServerManager
+from beyondagent.module.task_manager.rewards import grader_manager
 from beyondagent.schema.task import Task
 from beyondagent.schema.trajectory import Trajectory, Sample
+# do not delete this line
+from beyondagent.module.task_manager.rewards import LlmAsJudgeRewardCalculator,LlmAsJudgeRewardCalculatorWithGT,LlmAsJudgeBinaryRewardCalculator,LlmAsJudgeBinaryRewardCalculatorWithGT,EnvGrader, AvgBinaryGTJudge, AvgLlmJudge
 from beast_logger import register_logger
 
 def init_logger(experiment_name):
@@ -117,7 +119,7 @@ class ParallelEnvManager(object):
                     break
                 except Exception as e:
                     logger.exception(f"rollout_server.{i} error: {e.args}")
-                    time.sleep(i + 1)
+                    time.sleep(2**i)
             return output_message[-1]
 
         if self.llm_mode == "remote":
@@ -183,10 +185,11 @@ class ParallelEnvManager(object):
                     sampling_params["top_p"] = self.rollout_config.val_kwargs.top_p
 
                 llm_chat_fn = self.get_llm_chat_fn(sampling_params)
+                reward_caculator=grader_manager.get_calculator(task.evaluator, task=task)
                 agent_flow: BaseAgentFlow = AgentFlow(
-                    reward_calculator=LlmAsJudgeRewardCalculator() if task.evaluator=='synthetic' else None, # TODO: better calculator injection
-                    llm_chat_fn=llm_chat_fn,
-                    tokenizer=self.tokenizer,
+                    reward_calculator=reward_caculator,
+                    llm_chat_fn=llm_chat_fn, 
+                    tokenizer=self.tokenizer, 
                     config=self.config,
                     **kwargs
                 )
@@ -203,8 +206,18 @@ class ParallelEnvManager(object):
                     logger.bind(exception=True).exception(f"rollout_env_worker failed after {max_retry} retries: {e.args}")
                     raise e
 
+    def rollout(self, tasks: List[Task], mode: Literal["sample", "validate"], epoch: str) -> List[Trajectory]:
+        """
+        使用线程池执行rollout任务，并自动重试失败的任务，直到所有任务成功。
 
-    def rollout(self, tasks: List[Task], mode: Literal["sample", "validate"], epoch: str):
+        Args:
+            tasks: 待处理的任务列表。
+            mode: 模式，'sample' 或 'validate'。
+            epoch: 当前的周期标识，用于日志和进度条。
+
+        Returns:
+            一个包含所有成功任务结果的Trajectory列表，并已排序。
+        """
         traj_cmt_array = []
         #############
         # ANNI 0814
@@ -219,11 +232,16 @@ class ParallelEnvManager(object):
             "mixed": sorted([i < round(rollout_n*self.config.hybrid_experience_training.rollout_expratio) for i in range(rollout_n)], key=lambda _: random.random()),
             "all": [True] * rollout_n
         }[exp_mode]
-
         task_train_exp_modes = [
             task.metadata.get("task_train_exp_mode", "keep")
             for task in tasks
         ]   # len(tasks)个: task_train_exp_mode是query/task-level的
+        
+        
+        # 1. 核心数据结构：使用一个字典来追踪所有“飞行中”的任务
+        #    键是 Future 对象，值是提交该任务所需的完整参数
+        future_to_params: Dict[Future, Tuple[Task, str, str, str, int, bool, str, dict, list[bool]]] = {}
+        
         tmux = {
             'step': [0 for _ in range(len(tasks) * rollout_n)],
             'token': [0 for _ in range(len(tasks) * rollout_n)],
@@ -231,37 +249,66 @@ class ParallelEnvManager(object):
         stop = [False for _ in range(len(tasks) * rollout_n)]
 
         with ThreadPoolExecutor(max_workers=self.max_parallel) as executor:
-            futures = []
+            # 2. 初始提交：将所有任务第一次提交到线程池
             for data_id, (task, task_train_exp_mode) in enumerate(zip(tasks, task_train_exp_modes)):
                 for rollout_id in range(rollout_n):
                     thread_index = data_id * rollout_n + rollout_id
                     add_exp = add_exp_choices[rollout_id]
-                    future = executor.submit(self.rollout_env_worker, task=task, data_id=str(data_id),
-                        rollout_id=str(rollout_id),
-                        mode=mode,
-                        thread_index=thread_index,
-                        add_exp=add_exp,
-                        task_train_exp_mode=task_train_exp_mode,
-                        tmux=tmux,
-                        stop=stop,
-                    )
-                    futures.append(future)
+                    params = (task, str(data_id), str(rollout_id), mode, thread_index,add_exp,task_train_exp_mode,tmux,stop)
+                    future = executor.submit(self.rollout_env_worker, *params)
+                    future_to_params[future] = params
 
-            while any(future.running() for future in futures):
-                self.step_status_printer(tmux)
-                time.sleep(10)
+            total_rollouts = len(future_to_params)
+            pbar = tqdm(total=total_rollouts, desc=f"Epoch {epoch}: Collecting rollouts")
 
-            for future in tqdm(futures, desc=f"epoch{epoch}.collect_rollout"):
-                # do not fail silently
-                result = future.result()
-                traj_cmt_array.append(result)
+            # 3. 动态处理循环：只要还有任务在执行，就持续循环
+            while future_to_params:
+                # as_completed 会在任何一个 future 完成时立即返回它
+                for future in as_completed(future_to_params):
+                    # 获取与这个完成的 future 相关的原始参数,从字典中移除
+                    params = future_to_params.pop(future)
+                    self.step_status_printer(tmux) # cc: i dont know what this is
 
-            task_success_rate = np.mean([cmt.reward.success_rate for cmt in traj_cmt_array])
-            for cmt in traj_cmt_array:
-                cmt.current_batch_success_rate = np.mean(task_success_rate)
+                    try:
+                        # 4. 健壮的结果获取与错误处理
+                        result = future.result()
 
-            return traj_cmt_array
+                        # 处理“软失败”（worker内部捕获错误并返回特殊标记）
+                        if 'error' in result.metadata:
+                            error_msg = result.metadata['error']
+                            logger.warning(f"Task {params[1]}-{params[2]} failed with metadata error: {error_msg}. Retrying... \n Task: {params[0]}")
+                            # 由于大部分错误来自于网络和quota，此处强行等待
+                            time.sleep(30)
+                            # 将任务重新提交,同时重制 tmux 和 stop
+                            thread_index=params[4]
+                            for k in tmux: tmux[k][thread_index] = 0
+                            stop[thread_index]=False
+                            new_future = executor.submit(self.rollout_env_worker, *params) # type: ignore
+                            future_to_params[new_future] = params
+                            continue # 继续处理下一个完成的任务
 
+                        # 5. 成功处理
+                        traj_cmt_array.append(result)
+                        pbar.update(1) # 只有在真正成功时才更新进度条
+
+                    except Exception as e:
+                        # 处理“硬失败”（worker中未捕获的异常）
+                        logger.error(f"Task {params[1]}-{params[2]} raised an exception: {e}. Retrying... \n Task: {params[0]}")
+                        # 将任务重新提交,同时重制 tmux 和 stop
+                        thread_index=params[4]
+                        for k in tmux: tmux[k][thread_index] = 0
+                        stop[thread_index]=False
+                        new_future = executor.submit(self.rollout_env_worker, *params) # type: ignore
+                        future_to_params[new_future] = params
+            pbar.close()
+
+        task_success_rate = np.mean([cmt.reward.success_rate for cmt in traj_cmt_array])
+        for cmt in traj_cmt_array:
+            cmt.current_batch_success_rate = np.mean(task_success_rate)
+        
+        # keep trajectory sorted
+        traj_cmt_array = sorted(traj_cmt_array, key=lambda x: (int(x.data_id), int(x.rollout_id)))
+        return traj_cmt_array
 
 
     #############
@@ -304,6 +351,7 @@ class ParallelEnvManager(object):
         sample_arr_final = []
         for cmt in cmt_array:
             extras = self.get_extra(cmt)
+            # cc: 新 env 返回两条数据会被标记为 initializatio，然后被排除在训练外
             sample_arr = cmt.group_tokenize()
             for sample in sample_arr:
                 sample.extras = extras
