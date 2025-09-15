@@ -71,6 +71,7 @@ class AgentFlow(BaseAgentFlow):
         self.cmt.save_init_input(init_messages, add_nothink)
 
         request_id: str = ""
+        err_in_generating=False
         for act_step in range(self.max_steps):
             # 2. 🔄 Update thread progress
             tmux['step'][thread_index] = act_step
