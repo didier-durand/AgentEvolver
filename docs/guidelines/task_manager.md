@@ -1,41 +1,40 @@
-To evolve a agent in your own environment data-driven, the first step is to collect the training data that maps the agent abilities which suit your needs.
+To evolve an agent in a data-driven manner within your own environment, the first step is to collect training data that maps the agent's abilities to your requirements.
 
-Task Manager provides the training data for AgentEvolver. It is responsible for
+Task Manager provides the training data for AgentEvolver. It is responsible for:
 
-- Exploring an unknown environment, profiling the potential tasks,
-- Discovering new synthetic tasks, understanding the requirements of users,
-- Curating the training tasks, scheduling the quality and quantity.
-- Providing built-in synthetic reward as fallback.
+- Exploring unknown environments and profiling potential tasks,  
+- Discovering new synthetic tasks and capturing user requirements,  
+- Curating training tasks and managing their quality and quantity,  
+- Providing a built-in synthetic reward mechanism as a fallback.  
 
-In this section, we will introduce the Task Manager and show you how to efficiently collect proper training data for your agent training, as well as the detailed configuration of Environment Profiling, Task Derivation, and Curation strategies.
+In this section, we introduce Task Manager and explain how to efficiently collect appropriate training data for agent training, including the configuration of Environment Profiling, Task Derivation, and Task Curation strategies.
 
 ## Collect Your First Training Data
 
-To collect your training data, there are 4 things to do:
+To collect your training data, perform the following four steps:
 
-1. Adopt your environment to Environment Service, which is supposed to be done in the previous section.
-2. Profile the environment.
-3. Configure the strategies to be used, as well as their parameters.
-4. Run the Task Manager and collect the training data.
+1. Integrate your environment with Environment Service (as described in the previous section).  
+2. Profile the environment.  
+3. Configure the strategies to be applied, including their parameters.  
+4. Execute Task Manager and collect the training data.  
 
+### 1. Adopt the Environment
 
-### 1. Adopt the environment
-
-Suppose you have already adopted your environment to Environment Service. If not, please refer to the previous section.
+Assume the environment has already been integrated with Environment Service. If not, please refer to the previous section for setup instructions.
 
 ### 2. Profile the Environment
 
-Task Manager needs not only the API documents, but also the concepts in the environment. For example, in a file system, APIs provide the file operations, the types of files and their formats, however, cannot be described in the API documents, which is the concepts we call in the environment.
+Task Manager requires not only the API specifications but also conceptual knowledge of the environment. For example, in a file system, APIs define file operations, but they do not capture high-level concepts such as file types or formats. These conceptual elements must be explicitly represented.
 
-We introduce Environment Profile to collect the concepts. A environment profile is a JSON file that describes the *Entity*, *Attribute*, and *Operation* in the environment.
+We introduce the **Environment Profile** to capture these concepts. An Environment Profile is a JSON file that specifies *Entity*, *Attribute*, and *Operation* definitions for the environment.
 
-- Entity: An entity represents a fundamental object in the environment. It is the target of interactions and can usually be created, modified, or deleted.
-- Attribute: Attributes describe the properties or metadata of an entity. They provide additional information that defines the state or identity of the entity but are not themselves executable actions.
-- Operation: Operations define the actions that can be applied to an entity. They represent the functional capabilities available in the environment and are often aligned with API calls.
+- **Entity**: Represents a core object in the environment. Entities are the targets of interaction and can typically be created, modified, or deleted.  
+- **Attribute**: Defines descriptive properties or metadata of an entity. Attributes provide contextual information but are not executable actions.  
+- **Operation**: Specifies the actions that can be performed on an entity. Operations represent the functional capabilities of the environment and are often aligned with API calls.  
 
-Besides, we also define the task preference in the environment profile, which is used to control the style of the tasks.
+Additionally, the Environment Profile defines **task preferences**, which control the style and scope of the generated tasks.
 
-A basic environment profile is shown below.
+A basic Environment Profile example is shown below:
 
 ```json
 {
@@ -49,25 +48,13 @@ A basic environment profile is shown below.
         "name": "The name of the file.",
         "size": "The size of the file in bytes.",
         "type": "The type of the file, e.g. text, image, video, etc.",
-        "parent": "The parent directory of the file.",
+        "parent": "The parent directory of the file."
       },
       "opts": [
-        {
-          "name": "create",
-          "description": "Create a new file."
-        },
-        {
-          "name": "delete",
-          "description": "Delete a file."
-        },
-        {
-          "name": "read",
-          "description": "Read a file."
-        },
-        {
-          "name": "write",
-          "description": "Write to a file."
-        },
+        { "name": "create", "description": "Create a new file." },
+        { "name": "delete", "description": "Delete a file." },
+        { "name": "read", "description": "Read a file." },
+        { "name": "write", "description": "Write to a file." }
       ]
     },
     {
@@ -75,21 +62,12 @@ A basic environment profile is shown below.
       "description": "A directory in a file system.",
       "attrs": {
         "name": "The name of the directory.",
-        "parent": "The parent directory of the directory.",
+        "parent": "The parent directory of the directory."
       },
       "opts": [
-        {
-          "name": "create",
-          "description": "Create a new directory."
-        },
-        {
-          "name": "delete",
-          "description": "Delete a directory."
-        },
-        {
-          "name": "list",
-          "description": "List the contents of a directory."
-        }
+        { "name": "create", "description": "Create a new directory." },
+        { "name": "delete", "description": "Delete a directory." },
+        { "name": "list", "description": "List the contents of a directory." }
       ]
     }
   ],
@@ -101,79 +79,87 @@ A basic environment profile is shown below.
 }
 ```
 
-In this profile, we define entities `file` and `folder`, and their attributes `name`, `size`, `type`, `parent`, with operations `create`, `delete`, `read`, `write`, `list`. Based on these definitions, Task Manager gets a brief idea of the environment to support the task derivation and curation.
+In this profile, entities `file` and `directory` are defined with attributes (`name`, `size`, `type`, `parent`) and operations (`create`, `delete`, `read`, `write`, `list`). Based on these definitions, Task Manager gains a structured understanding of the environment to support task derivation and curation.
 
-To write your own environment profile, copy the template `environment_profile_template.json` to `environment_profile.json` and fill in the details. A good idea is to use LLM to assist you in filling in the details.
+To create your own Environment Profile, copy the template `environment_profile_template.json` to `environment_profile.json` and fill in the details. Using an LLM to assist in drafting the profile can reduce manual effort.
 
 ### 3. Configure the Strategies
 
-The process of making profiles into synthetic tasks includes two major steps: task derivation and task curation.
+Transforming profiles into synthetic tasks involves two stages: **task derivation** and **task curation**.
 
-**Task derivation** is the process of generating synthetic tasks from the profile. During the derivation, environment exploration and task summarization are performed under the control of a strategy. Besides the built-in scheduler, the strategy plays an important role in prioring the path of walk in the environment and summarizing the styled tasks from the trajectories.
+**Task derivation** is the process of generating candidate tasks from the profile. During derivation, exploration and summarization are performed under the guidance of a chosen strategy. Strategies determine how the environment is traversed and how structured tasks are extracted from exploration trajectories.
 
-**Task curation** controls the quality and quantity of synthetic tasks with filters and mixture strategies. Filters are used to filter out the tasks that are not suitable for your agent, e.g. tasks that are infeasible, too complex/easy, or just does not fit your needs. Mixture strategies are used to mix the tasks from different sources, and control the characteristic (such as difficulty) of the tasks.
+**Task curation** ensures task quality and diversity. Filters are applied to discard infeasible, redundant, or irrelevant tasks. Mixture strategies combine tasks from multiple sources and control properties such as difficulty distribution.
 
+By default, Task Manager provides:
 
-We implement RandomWalk strategy for task derivation, and DeduplicationFilter, FeasibilityFilter, UnifiedMixtureStrategy for task curation by default. You can find them in the config file `TODO`. More strategies will be introduced in future.
+* *RandomWalk Strategy* for task derivation,
+* *DeduplicationFilter*, *FeasibilityFilter*, and *UnifiedMixtureStrategy* for task curation.
+
+These can be configured in the YAML configuration file:
 
 ```yaml
-TODO
-# Mixture strategy is active for intergrated mode only.
+# TODO
+# Mixture strategy is only active in integrated mode.
 ```
 
 ### 4. Start Task Synthesis
 
-All things configured, now we can start the task synthesis.
+Once configuration is complete, task synthesis can be initiated.
 
-1. Start Enviroment Service.
+1. Start the Environment Service.
 2. Start Task Manager.
 
 #### Standalone Mode
 
-Task Manager can be started in standalone mode, which is the simplest mode for task synthesis.
+Task Manager can be executed in standalone mode for simple task synthesis.
 
-To start Task Manager in standalone mode, run the following command.
+Example command:
 
 ```bash
-TODO
+# TODO
 ```
 
-You will see the progress of task synthesis. After the synthesis is done, it prints the path of the generated tasks.
+The synthesis progress will be displayed. When the process completes, the path to the generated tasks will be printed.
 
 #### Integrated Mode
 
-In most cases, you will integrate Task Manager with AgentEvolver.
+In most workflows, Task Manager is integrated with AgentEvolver. Launching AgentEvolver automatically starts the training and task synthesis pipeline.
 
-Just launch AgentEvolver to start your training.
-
-!!! info "Independant, or integrated?"
-    Task Manager can be standalone for light-weight data generation. We recommend you to tune the strategies in standalone mode first, and then use integrated mode in production, as some features are only available in AgentEvolver.
+!!! info "Standalone vs Integrated"
+    Task Manager can be executed independently for lightweight data generation. It is recommended to tune strategies in standalone mode, and then use integrated mode in production, where additional features are available within AgentEvolver.
 
 ### 5. Check the Data
 
-The synthetic tasks are stored in TODO. Check them to see if they are suitable for your agent.
+The generated synthetic tasks are stored in:
 
+```text
+# TODO
+```
+
+Inspect the generated data to ensure it aligns with your training requirements.
 
 ## Overview of Task Manager
 
-In data-driven model optimization, training an agent in a environment is reflected in trajectory tuning under environmental tasks. Consequently, the quality of data directly determines the agent's capability. However, acquiring and controlling the quality of training tasks in real environments is challenging.
+In data-driven model optimization, agent training is formulated as trajectory tuning over environment-specific tasks. Consequently, the quality of training data directly determines the resulting agent capabilities. However, in real environments, acquiring and controlling the quality of training tasks is inherently difficult.
 
-To address this, we provide Task Manager in AgentEvolver, a general and dynamic workflow for environment exploration and task generation, along with supporting methods.
+Task Manager addresses this challenge by providing a dynamic and general-purpose workflow for environment exploration, task generation, and quality control.
 
-TODO 一张图
+```text
+# TODO: Insert diagram here
+```
 
-In the following sections, you will learn each component of Task Manager, and how to wisely extend them to your needs.
-
+The following sections describe each component of Task Manager in detail, including extension points for customization.
 
 ## Environment Profiling
 
-Environment Profile describes concepts in the environment through entities, attributes, and operations. Similar to object-oriented programming and databases, we consider these to be the essential components of a environment.
+An Environment Profile describes the concepts of an environment using **entities**, **attributes**, and **operations**. Similar to object-oriented programming and database schemas, these components are considered fundamental.
 
-- Entity: Represents an object in the environment.
-- Attributes: Properties that describe the entity.
-- Operations: Actions applicable to the entity.
+* **Entity**: Represents an object in the environment.
+* **Attributes**: Define the properties of the entity.
+* **Operations**: Specify the actions that can be applied to the entity.
 
-For example, a simple File entity with its attributes and operations could be defined as:
+For example:
 
 ```
 Entity: File
@@ -190,51 +176,47 @@ Operations
     - chmod: Change the permission of a file.
 ```
 
-The Profile itself is not strictly defined. Leveraged the capabilities of LLMs, it can be constructed at different levels of granularity: as a single file system entity, as individual file entities, or even as separate entities for each file type. The choice of granularity is a trade-off between human effort and the capabilities of the LLM in practice.
+The granularity of a profile is flexible. With the assistance of LLMs, profiles can be constructed at multiple levels, ranging from a single generic entity to highly specialized entities. The choice of granularity is a trade-off between manual specification and the capability of the LLM to generalize.
 
-Based on the Environment Profile, Task Manager can recognize the concepts present in the environment, explore the information carried by entities, and leverage the available operations to process this information. These operations can be combined to form candidate solutions for real-world problems.
+Task Manager leverages the Environment Profile to recognize concepts, explore relationships between entities, and synthesize meaningful tasks. Operations are combined to form candidate solutions reflecting real-world problem-solving.
 
-In addition to the Environment Profile, users may optionally provide a User Preference. A Preference describes expectations about the agent's capabilities, such as the desired task difficulty or types of tasks to be solved.
+Users may optionally specify a **User Preference** in addition to the Environment Profile. Preferences define expectations for the agent's capabilities, such as desired task difficulty or task categories.
 
 ### Write a Profile
 
-There are two ways to write a profile: using JSON (recommended) or using Python.
-
+Profiles can be specified in **JSON** (recommended) or in **Python**.
 
 Top-level structure:
 
 ```json
 {
-  "name": string,                 // Required. User/profile name, e.g. "Alice"
-  "background": string,           // Required. User background or usage scenario
-  "entities": [ ... ],            // Required. List of entities in the environment (see below)
+  "name": string,
+  "background": string,
+  "entities": [ ... ],
   "task_preference": {
-    "num_entities": integer,         // Maximum/target number of entity types involved in a task
-    "num_opts": integer,             // Maximum/target number of operations allowed in a single task or workflow
-    "relation_difficulty": integer   // Complexity level of relationships/dependencies between entities
+    "num_entities": integer,
+    "num_opts": integer,
+    "relation_difficulty": integer
   }
 }
 ```
 
-`entities` is an array, each element describing an entity type (e.g. `file`, `directory`).
+Example entity definition:
 
 ```json
 {
-  "name": string,              // Required. Entity name (lowercase recommended), e.g. "file"
-  "description": string,       // Required. Human-readable description of the entity
+  "name": "file",
+  "description": "A file in a file system.",
   "attrs": {
-    "name": "The description to this attr"
+    "name": "The name of the file."
   },
   "opts": [
-    {
-      "name": string,          // Required. Operation name (verb), e.g. "create", "delete"
-      "description": string    // Required. Human-readable description of the operation
-    }
+    { "name": "create", "description": "Create a new file." }
   ]
 }
 ```
 
-A minimal usable example (no comments):
+A minimal working example:
 
 ```json
 {
@@ -279,108 +261,107 @@ A minimal usable example (no comments):
 }
 ```
 
-If you prefer Python, you can find examples in the package `TODO`.
+If Python is preferred, refer to examples in the package:
 
+```text
+# TODO
+```
 
 ## Task Derivation
 
+Task Derivation is the initial stage of synthetic task generation. It transforms the Environment Profile into preliminary task drafts by applying exploration and synthesis strategies.
 
-Task Derivation constitutes the initial stage of synthetic task generation. Its purpose is to transform the conceptual knowledge provided by the Environment Profile into preliminary task drafts. In this stage, the system applies exploration-synthesis strategies to traverse the environment, construct trajectories, and abstract them into structured task descriptions.
+The primary objectives are:
 
-The primary objectives of derivation are:
+1. **Exploration** – Cover the environment systematically or stochastically.
+2. **Summarization** – Convert exploration trajectories into concise, structured candidate tasks.
 
-1. Exploration – to systematically or stochastically cover the environment space.
-2. Summarization – to convert exploration trajectories into concise, well-formed candidate tasks.
+Available strategies:
 
-The following derivation strategies are available:
-
-- RandomWalk Strategy – Performs unbiased random exploration, producing a diverse set of candidate tasks.
-- More strategies will be introduced in future...
+* **RandomWalk Strategy** – Random exploration producing a diverse task set.
+* Additional strategies will be introduced in future versions.
 
 ### RandomWalk Strategy
 
-RandomWalk Strategy is a simple and effective strategy for task derivation. It leverages curiosity and exploration to generate a wide range of candidate tasks.
+The RandomWalk Strategy is simple yet effective. It explores the environment by sampling entities and operations at random, generating diverse trajectories that can be summarized into tasks.
 
-The parameters of RandomWalk Strategy are:
+Parameters:
 
 ```yaml
 task_manager:
-  # ......
   strategy: random
   strategy_args:
-    max_explore_step: 30              # Maximum number of steps to explore
-    max_llm_retries: 6                # Maximum number of LLM retries
-    env_url: ${env_service.env_url}   # Environment Service URL
-    exploration_llm_temperature: 1.0  # LLM temperature
-    exploration_llm_top_p: 1.0        # LLM top-p
-    exploration_llm_top_k: 100        # LLM top-k
+    max_explore_step: 30
+    max_llm_retries: 6
+    env_url: ${env_service.env_url}
+    exploration_llm_temperature: 1.0
+    exploration_llm_top_p: 1.0
+    exploration_llm_top_k: 100
 ```
-
 
 ## Task Curation
 
-Task Curation is responsible for ensuring the quality and diversity of synthetic tasks generated during derivation. It operates by applying filters to discard unsuitable tasks and mixture strategies to balance task distributions.
+Task Curation ensures the quality and diversity of tasks generated during derivation by applying filters and mixture strategies.
 
+* **Filters**
+    * *DeduplicationFilter*: Removes redundant or near-duplicate tasks.
+    * *FeasibilityFilter*: Removes tasks that cannot be executed in the environment.
 
-- Filters
-    - DeduplicationFilter: Removes duplicated or highly similar tasks.
-    - FeasibilityFilter: Eliminates tasks that cannot be executed in the given environment.
-- Mixture Strategies
-    - UnifiedMixtureStrategy: Integrates tasks from multiple sources to maintain distributional balance.
+* **Mixture Strategies**
+    * *UnifiedMixtureStrategy*: Combines tasks from multiple sources to maintain balance.
 
-The goals of task curation are:
-- Quality assurance – Valid, feasible, and logically consistent tasks.
-- Diversity preservation – Avoiding over-concentration on a single class of tasks.
-- Dynamic control – Adjusting task sets during training according to agent performance.
+Goals of curation:
+
+* **Quality assurance** – Ensure valid, feasible, and logically sound tasks.
+* **Diversity preservation** – Avoid bias toward a single task type.
+* **Dynamic control** – Adjust task selection according to agent progress.
 
 ### DeduplicationFilter
 
-DeduplicationFilter is a filter that removes duplicated or highly similar tasks. It is designed to remove tasks that are likely to be redundant or similar to each other, thus reducing the number of tasks and improving task diversity.
-
-The filter is enabled by default.
+Removes duplicate or highly similar tasks to improve data diversity. Enabled by default.
 
 ### FeasibilityFilter
 
-
-
+Filters out tasks that cannot be completed given the environment constraints.
 
 ## Synthetic Reward
 
+Task Manager provides a built-in **synthetic reward** as a fallback, enabling training without requiring user-defined reward functions.
 
-To facilitate direct training without requiring user-defined reward functions, Task Manager provides a built-in synthetic reward mechanism as a fallback. Characteristics of the synthetic reward:
+Key properties:
 
-- Generality – Designed to provide reasonable feedback across a wide range of environments.
-- Zero-configuration – No additional user specification required.
-- Extensibility – Can be combined with or replaced by custom reward functions.
+* **Generality** – Applicable across diverse environments.
+* **Zero-configuration** – Works out of the box.
+* **Extensibility** – Can be replaced or extended with custom reward functions.
 
-Typical reward components include:
-- Relevance check - Whether the trajectory is relevant to the task.
-- Success Check with Ref. GT – Whether the task has been completed successfully.
-- Efficiency check with Ref. GT - Whether the task has been completed within reasonable steps.
+Typical reward components:
 
-> While the built-in reward achieves good general performance, it is strongly recommended to implement custom reward functions tailored to your application for optimal results.
+* **Relevance check** – Whether the trajectory matches the task.
+* **Success check** – Whether the task is successfully completed.
+* **Efficiency check** – Whether the task is solved within reasonable steps.
 
-To use the built-in synthetic reward, simply set `synthetic_grader: llm` in the configuration file.
+> While the built-in reward is general-purpose, it is recommended to design custom rewards aligned with the application domain.
+
+Configuration example:
 
 ```yaml
 task_manager:
-  # ......
   grader:
-    original_grader: env    # use environment reward for original tasks
-    synthetic_grader: llm   # use synthetic reward for synthetic tasks
+    original_grader: env
+    synthetic_grader: llm
 ```
-
 
 ## Extend Task Manager
 
-Task Manager is designed as a modular and extensible framework, enabling users to adapt it to a wide variety of training scenarios.
+Task Manager is designed as a **modular and extensible framework**, adaptable to different training scenarios.
 
-Extension points include:
+Extension points:
 
-- Environment Profiling – Define new entities, attributes, operations, or adjust the granularity of profiles.
-- Task Derivation – Implement novel exploration or synthesis strategies.
-- Task Curation – Introduce additional filters and mixture strategies (e.g., semantic similarity–based filtering).
-- Reward Functions – Replace or augment the synthetic reward to reflect domain-specific success criteria.
+* **Environment Profiling** – Define new entities, attributes, or operations, and adjust granularity.
+* **Task Derivation** – Implement new exploration or synthesis strategies.
+* **Task Curation** – Introduce custom filters or mixture strategies.
+* **Reward Functions** – Replace or augment the default synthetic reward.
 
-
-TODO waiting for refactoring
+```text
+# TODO: Refactoring in progress
+```
