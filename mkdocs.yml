@@ -37,3 +37,7 @@ nav:
   - API Reference:
       - API Reference: api/api_1.md
 
+
+markdown_extensions:
+  - admonition
+  - codehilite
