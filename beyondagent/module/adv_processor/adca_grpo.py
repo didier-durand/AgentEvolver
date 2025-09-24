@@ -59,19 +59,12 @@ def _ensure_tensor(x, device, dtype=None):
     return torch.as_tensor(x, device=device, dtype=dtype)  # ⭐ Convert the input to a tensor
 
 def _num_steps_from_step_ids(step_ids_row: torch.Tensor) -> int:
-    """
-    Calculates the number of steps in a trajectory from the given step IDs.
-
-    Args:
-        step_ids_row (torch.Tensor): A tensor containing step IDs.
-
-    Returns:
-        int: The number of steps in the trajectory.
-    """
     if step_ids_row.numel() == 0:
         return 0
-    m = torch.amax(step_ids_row)  # ⭐ Find the maximum value in the step_ids_row tensor
-    return int(m.item() + 1) if m.item() >= 0 else 0  # ⭐ Convert the maximum value to an integer and add 1 to get the total number of steps
+    valid = step_ids_row >= 0
+    if not torch.any(valid):
+        return 0
+    return int(step_ids_row[valid].max().item()) + 1
 
 def _align_flags(flags: List[bool], K: int, is_success: bool) -> List[bool]:
     """
@@ -835,7 +828,18 @@ def broadcast_step_adv_to_tokens(
         valid = sid_row >= 0
         if torch.any(valid):
             sids = sid_row[valid]
+            # ==== DEBUG: guard before adv_i[sids] ====
+            if torch.numel(sids) > 0:
+                max_sid = int(sids.max().item())
+                if max_sid >= adv_i.numel():
+                    # 这里直接抛出更清楚的错误信息，定位哪个样本炸了
+                    raise RuntimeError(
+                        f"[broadcast_check] sample_idx={i} max_sid={max_sid} "
+                        f"len(adv_i)={adv_i.numel()} uniq_sids={sids.unique().tolist()}"
+                    )
+            # ==== /DEBUG ====
             out[i, valid] = adv_i[sids]  # ⭐ Assign advantage values to the corresponding token positions
+        
     return out
 
 # =========================
@@ -929,6 +933,16 @@ def compute_prm_grpo_advantages(
     # ---- 5. 优势值计算阶段：step后缀和 + 广播到token ----
     # 对step-level奖励进行后缀和计算得到step-level优势值
     step_adv = suffix_sum_on_steps(step_rewards)
+    # 强制：以 step_ids 的 max_sid+1 为准，对 adv[i] 做 pad/trim
+    B = step_ids.size(0)
+    for i in range(B):
+        K = _num_steps_from_step_ids(step_ids[i])
+        cur = step_adv[i] if i < len(step_adv) and step_adv[i] is not None else []
+        if len(cur) < K:
+            pad_val = cur[-1] if len(cur) > 0 else 0.0  # 空就用0填
+            step_adv[i] = cur + [pad_val] * (K - len(cur))
+        elif len(cur) > K:
+            step_adv[i] = cur[:K]
     # 将step-level优势值广播到token-level
     advantages = broadcast_step_adv_to_tokens(step_adv, step_ids)
 

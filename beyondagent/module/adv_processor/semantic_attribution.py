@@ -1,6 +1,6 @@
 import torch
 import verl.utils.torch_functional as verl_F
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, RateLimitError, APIError, BadRequestError
 import os
 import json
 from pathlib import Path
@@ -188,6 +188,7 @@ def _save_evaluation_record(record: EvaluationRecord, save_dir: Optional[str] = 
         print(f"[record_save] ❌ FAILED to save evaluation record for sample {record.sample_idx}: {e}")
         print(f"[record_save] 📁 Path: {save_dir}")
 
+
 async def _async_safe_query(
     client: AsyncOpenAI,
     model: str,
@@ -198,6 +199,7 @@ async def _async_safe_query(
 ) -> str:
     """
     Asynchronously queries the LLM API with built-in retry logic for handling rate limits and other exceptions.
+    Handles content moderation errors by aborting after 2 attempts.
 
     Args:
         client (AsyncOpenAI): The asynchronous OpenAI client.
@@ -208,14 +210,16 @@ async def _async_safe_query(
         timeout_s (int, optional): The timeout in seconds for each request. Defaults to 120.
 
     Returns:
-        str: The final response content from the model.
+        str: The final response content from the model, or an empty string if content moderation fails twice.
     """
     async with semaphore:
         last_exception = None
+        # 👇 新增：用于追踪内容审核失败的计数器
+        inappropriate_content_error_count = 0
 
         for attempt in range(max_retries):
             try:
-                # ---------- 普通 / thinking 模型分支 ----------
+                # ---------- 普通 / thinking 模型分支 (这部分逻辑保持不变) ----------
                 is_thinking_model = model.lower() in {
                     "qwq-plus",
                     "qwen3-30b-a3b-thinking-2507",
@@ -224,7 +228,7 @@ async def _async_safe_query(
 
                 if is_thinking_model:
                     print(f"[API] Using streaming mode for thinking model: {model}")
-                    response = await client.chat.completions.create(  # ⭐ Create the streaming response for thinking models
+                    response = await client.chat.completions.create(
                         model=model,
                         messages=messages,
                         temperature=0.0,
@@ -248,7 +252,7 @@ async def _async_safe_query(
                     return final_answer
 
                 else:
-                    response = await client.chat.completions.create(  # ⭐ Create the non-streaming response for standard models
+                    response = await client.chat.completions.create(
                         model=model,
                         messages=messages,
                         temperature=0.0,
@@ -257,45 +261,56 @@ async def _async_safe_query(
                     )
                     return response.choices[0].message.content.strip()
 
-            # ---------- 统一异常处理 ----------
-            except Exception as e:                # ❶ 捕获所有异常
+            # ---------- 统一异常处理 (重构后的逻辑) ----------
+            except Exception as e:
                 last_exception = e
-                err = str(e).lower()
+                err_msg = str(e).lower()
 
-                is_rate_limit = any(
-                    key in err
-                    for key in [
-                        "429",
-                        "rate limit",
-                        "exceeded your current requests",
-                        "limit_requests",
-                    ]
+                # 👇 1. 优先处理内容审核失败的特定错误
+                # 错误码 'data_inspection_failed' 或消息中包含 'inappropriate content'
+                is_content_error = isinstance(e, BadRequestError) and (
+                    "data_inspection_failed" in err_msg or "inappropriate content" in err_msg
                 )
+                if is_content_error:
+                    inappropriate_content_error_count += 1
+                    print(f"[API Warning] Content inspection failed (attempt {inappropriate_content_error_count}/2). Error: {e}")
+                    if inappropriate_content_error_count >= 2:
+                        print("[API Error] ❌ Content inspection failed twice. Aborting and returning empty string.")
+                        return ""  # 满足条件，直接返回空字符串并退出函数
 
-                # ----------- 若未到最大重试次数 -----------
+                # 如果未到最大重试次数，则根据错误类型决定如何等待
                 if attempt < max_retries - 1:
-                    # 429 → 指数退避 + 抖动
+                    # 👇 2. 处理速率限制错误 (用 elif 保证逻辑独立)
+                    is_rate_limit = any(
+                        key in err_msg
+                        for key in ["429", "rate limit", "exceeded", "limit_requests"]
+                    )
                     if is_rate_limit:
-                        backoff = min(1.5 ** attempt, 60)       # 上限 60 s
-                        jitter  = backoff * 0.25 * random.random()
-                        wait    = backoff + jitter
-                        print(f"[API Retry] 429 (attempt {attempt+1}/{max_retries}) "
+                        backoff = min(1.5 ** attempt, 60)  # 上限 60 s
+                        jitter = backoff * 0.25 * random.random()
+                        wait = backoff + jitter
+                        print(f"[API Retry] Rate limit (attempt {attempt+1}/{max_retries}) "
                               f"sleep {wait:.1f}s")
                         await asyncio.sleep(wait)
                     else:
-                        # 其它异常 → 线性退避
+                        # 👇 3. 处理其他所有可重试的异常 (包括第一次内容审核失败)
                         wait = min(2.0 * (attempt + 1), 15)
-                        print(f"[API Retry] {type(e).__name__}: {e} "
-                              f"(attempt {attempt+1}/{max_retries}) sleep {wait:.1f}s")
+                        print(f"[API Retry] {type(e).__name__} (attempt {attempt+1}/{max_retries}) "
+                              f"sleep {wait:.1f}s. Error: {e}")
                         await asyncio.sleep(wait)
-                    # 继续 for-loop
+                    
+                    continue # 继续下一次循环尝试
+                
+                # 如果已达到最大重试次数
                 else:
-                    # ----------- 已达到最大重试次数 -----------
-                    print(f"[API Error] ❌ Max retries ({max_retries}) exceeded: {e}")
-                    break
+                    print(f"[API Error] ❌ Max retries ({max_retries}) exceeded for error: {e}")
+                    break # 中断 for 循环
 
-        # loop 结束仍失败 → 抛出最后一次异常
-        raise last_exception
+        # 如果循环正常结束或被 break 中断（意味着所有重试都失败了）
+        # 注意：如果是因为内容审核失败返回 ""，代码不会执行到这里
+        print(f"[API Error] ❌ Failed after {max_retries} retries.")
+        raise last_exception if last_exception else Exception("API query failed after all retries.")
+
 
 
 async def _evaluate_single_sample_api(

@@ -1,6 +1,6 @@
-# Advantage Processor (Self-Attributing)
+## Overview
 
-The **Advantage Processor** is one of the fundamental components of the AgentEvolver framework, responsible for implementing the **`self-attributing`** mechanism. Traditional reinforcement learning methods face the **credit assignment problem** in long-horizon tasks: they cannot distinguish which actions in a trajectory are valuable versus unproductive, leading to inefficient learning. The Self-Attributing mechanism addresses this by leveraging LLM's causal reasoning capabilities to decompose learning signals into **process quality** (logical correctness of actions) and **outcome effectiveness** (final success), enabling precise step-wise credit assignment.
+The **Advantage Processor** is one of core components of the AgentEvolver framework, responsible for implementing the **`self-attributing`** mechanism. Traditional reinforcement learning methods face the **credit assignment problem** in long-horizon tasks: they cannot distinguish which actions in a trajectory are valuable versus unproductive, leading to inefficient learning. The Self-Attributing mechanism addresses this by leveraging LLM's causal reasoning capabilities to decompose learning signals into **process quality** (logical correctness of actions) and **outcome effectiveness** (final success), enabling precise step-wise credit assignment.
 
 ### **Core Implementation: ADCA-GRPO**
 
@@ -8,8 +8,9 @@ The primary implementation of the Advantage Processor is **ADCA-GRPO**. ADCA-GRP
 
 The modular design allows for future extensions with alternative credit assignment paradigms.
 
+-----
 
-## ADCA-GRPO: Implementation Workflow 🧠
+## ADCA-GRPO: Implementation Workflow
 
 The ADCA-GRPO advantage calculation is an end-to-end pipeline that transforms raw trajectory data into a fine-grained advantage signal. Think of it as teaching the agent to distinguish "good reasoning steps" from "bad ones" - similar to how a teacher evaluates both the problem-solving process and the final answer.
 
@@ -116,39 +117,64 @@ Here is a comprehensive list of parameters based on the source code and configur
 
 ### **1. Global & General Settings**
 
-| Parameter | Type | Description |
-| :--- | :--- | :--- |
-| `enable` | `bool` | **Master switch for the module**. If `true`, the attribution and advantage rewriting logic will be executed. |
-| `enable_adca_metric`| `bool` | Enables additional ADCA monitoring metrics. Recommended to turn on for debugging and analysis. |
+**`enable`** (*bool*)
+: **Master switch for the module**. If `true`, the attribution and advantage rewriting logic will be executed.
+
+**`enable_adca_metric`** (*bool*)
+: Enables additional ADCA monitoring metrics. Recommended to turn on for debugging and analysis.
 
 ### **2. LLM Attribution Service**
 
 These parameters control the behavior of calling the large language model for `GOOD`/`BAD` labeling.
 
-| Parameter | Type | Description |
-| :--- | :--- | :--- |
-| `evaluation_type` | `str` | The evaluation method. Currently fixed to `"api"`, indicating LLM calls via an API. |
-| `model` | `str` | The **LLM model name** used for semantic evaluation, e.g., `"qwen-plus"`. |
-| `concurrent` | `int` | The number of **parallel API requests**. Adjust based on your API rate limits; a value between 5-20 is recommended. |
-| `api_max_retries` | `int` | The **maximum number of retries** for a failed API request. The default is 200, which is very robust. |
-| `llm_evaluation_log_dir` | `str` | (Optional) The directory path to save LLM request/response logs. Highly recommended for debugging. |
-| `skip_type` | `str` | **Strategy for skipping LLM calls** to save costs. `"skip_small_adv"` (recommended) skips samples with near-zero advantage. `"skip_all_neg"` skips negative-reward samples. `"none"` disables skipping. |
+**`evaluation_type`** (*str*)
+: The evaluation method. Currently fixed to `"api"`, indicating LLM calls via an API.
+
+**`model`** (*str*)
+: The **LLM model name** used for semantic evaluation, e.g., `"qwen-plus"`.
+
+**`concurrent`** (*int*)
+: The number of **parallel API requests**. Adjust based on your API rate limits; a value between 5-20 is recommended.
+
+**`api_max_retries`** (*int*)
+: The **maximum number of retries** for a failed API request. The default is 200, which is very robust.
+
+**`llm_evaluation_log_dir`** (*str*)
+: (Optional) The directory path to save LLM request/response logs. Highly recommended for debugging.
+
+**`skip_type`** (*str*)
+: **Strategy for skipping LLM calls** to save costs. `"skip_small_adv"` (recommended) skips samples with near-zero advantage. `"skip_all_neg"` skips negative-reward samples. `"none"` disables skipping.
 
 ### **3. ADCA-GRPO Core Algorithm (`adca_grpo` submodule)**
 
 These parameters directly influence the reward construction, fusion, and advantage computation.
 
-| Parameter | Type | Description |
-| :--- | :--- | :--- |
-| `prm_scheme` | `str` | The reward fusion scheme. **`"decouple"` is strongly recommended** as it normalizes attribution and outcome rewards separately, making it more stable. `"allocation"` is an alternative experimental scheme. |
-| `do_batch_norm` | `bool` | Whether to perform **group-wise Z-Score normalization** on step rewards. **Strongly recommended to be `true`** as it is key to training stability. |
-| `equal_trajectory_weight`| `bool` | Whether to treat each trajectory equally during normalization (GRPO). Recommended to be `true`. If `false`, all steps are pooled together (GSPO), which can be useful in noisy environments. |
-| `fix_base` | `float` | (For `decouple` scheme) The **base numerical value** to map `GOOD`/`BAD` labels to. For example, 0.2 means `GOOD`=+0.2 and `BAD`=-0.2. |
-| `alpha` | `float` | The **weighting coefficient for the attribution reward (`α`)**. This is one of the most important hyperparameters for balancing process quality vs. final outcome. |
-| `beta` | `float` | The **weighting coefficient for the outcome reward (`β`)**. For simplicity, this is often fixed to 1.0 during experiments. |
-| `orm_distribution` | `str` | The **distribution method for the outcome reward (ORM)**. `"last_step"` (recommended) applies it only to the final step, while `"all_steps"` distributes it across all steps. |
-| `prm_epoch` | `int` | **Enables attribution advantage for the first N epochs only**. This is an effective strategy for cost control, allowing the agent to rely on its learned policy in later training stages. |
-| `enable_length_normalization` | `bool` | (For `decouple` scheme only) Whether to enable trajectory length normalization (dividing rewards by sqrt of step count). May help balance contributions from long vs. short trajectories. Default is `false`. |
+**`prm_scheme`** (*str*)
+: The reward fusion scheme. **`"decouple"` is strongly recommended** as it normalizes attribution and outcome rewards separately, making it more stable. `"allocation"` is an alternative experimental scheme.
+
+**`do_batch_norm`** (*bool*)  
+: Whether to perform **group-wise Z-Score normalization** on step rewards. **Strongly recommended to be `true`** as it is key to training stability.
+
+**`equal_trajectory_weight`** (*bool*)  
+: Whether to treat each trajectory equally during normalization (GRPO). Recommended to be `true`. If `false`, all steps are pooled together (GSPO), which can be useful in noisy environments.
+
+**`fix_base`** (*float*)  
+: (For `decouple` scheme) The **base numerical value** to map `GOOD`/`BAD` labels to. For example, 0.2 means `GOOD`=+0.2 and `BAD`=-0.2.
+
+**`alpha`** (*float*)  
+: The **weighting coefficient for the attribution reward (α)**. This is one of the most important hyperparameters for balancing process quality vs. final outcome.
+
+**`beta`** (*float*)  
+: The **weighting coefficient for the outcome reward (β)**. For simplicity, this is often fixed to 1.0 during experiments.
+
+**`orm_distribution`** (*str*)  
+: The **distribution method for the outcome reward (ORM)**. `"last_step"` (recommended) applies it only to the final step, while `"all_steps"` distributes it across all steps.
+
+**`prm_epoch`** (*int*)  
+: **Enables attribution advantage for the first N epochs only**. This is an effective strategy for cost control, allowing the agent to rely on its learned policy in later training stages.
+
+**`enable_length_normalization`** (*bool*)  
+: (For `decouple` scheme only) Whether to enable trajectory length normalization (dividing rewards by sqrt of step count). May help balance contributions from long vs. short trajectories. Default is `false`.
 
 -----
 

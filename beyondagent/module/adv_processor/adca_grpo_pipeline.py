@@ -6,7 +6,7 @@ standard advantage calculation in PPO, overwriting advantages based on semantic
 step-level evaluation.
 """
 from typing import Any, Tuple, Dict
-
+from loguru import logger
 import torch
 from verl import DataProto
 
@@ -62,6 +62,19 @@ def apply_adca_grpo(
     # === (A) Parse and verify step boundaries ===
     if not verify_step_alignment(batch, tokenizer, global_steps):
         raise RuntimeError("Step alignment check failed!")
+    # # ==== DEBUG: peek first few samples ====
+    # try:
+    #     sids = batch.batch["step_ids"]  # shape: (B, L_resp)
+    #     for i in range(min(5, sids.size(0))):
+    #         row = sids[i]
+    #         valid = row >= 0
+    #         sid_max = int(row[valid].max().item()) if valid.any() else -1
+    #         K_text = len(batch.non_tensor_batch["steps"][i]) if "steps" in batch.non_tensor_batch else -1
+    #         logger.info(f"[step_dbg:D] i={i} sid_max={sid_max} K_text={K_text} uniq={row[valid].unique().tolist() if valid.any() else []}")
+    # except Exception as e:
+    #     logger.exception(f"[step_dbg:D] failed: {e}")
+    # # ==== /DEBUG ====
+
     for sample_idx in range(min(3, len(batch.batch["prompts"]))):
         verify_step_content(batch, tokenizer, sample_idx)
 

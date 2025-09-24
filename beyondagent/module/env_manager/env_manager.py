@@ -386,7 +386,7 @@ class ParallelEnvManager(object):
         task_ids = []
         rollout_ids = []
         extras = [] # List of dictionaries containing supplementary data for each trajectory, including "add_exp", "task_train_expmode", "experience"
-
+        k_text_list = []
         for sample in samples:
             # Validate that all fields have the same length
             assert len(sample.input_ids) == len(sample.attention_mask) == len(sample.position_ids) == len(
@@ -412,8 +412,27 @@ class ParallelEnvManager(object):
             resp_ids = sample.response_ids
             # shuchang: 0809
             # FIXME: 解决stepid对不齐的问题，使用统一的step解析函数parse_response_ids_to_steps 
+            
             resp_ids = sample.response_ids
             parse_result = parse_response_ids_to_steps(resp_ids, self.tokenizer)
+            # ==== DEBUG: per-sample step_id vs steps ====
+            sid_tensor = torch.tensor(parse_result.step_ids, dtype=torch.long)
+            valid_mask = sid_tensor >= 0
+            sid_max = sid_tensor[valid_mask].max().item() if valid_mask.any() else -1
+            K_text = len(parse_result.steps)
+            
+            if sid_max + 1 != K_text:
+                # 建议把尾部若干 token 打印出来，常能看出是哪个尾标记被误当成新 step
+                tail_txt = self.tokenizer.decode(sample.response_ids[-32:]) if hasattr(self, "tokenizer") else ""
+                logger.warning(
+                    f"[step_dbg:A] data_id={getattr(sample, 'data_id', '?')} "
+                    f"sid_max={sid_max} K_text={K_text} "
+                    f"uniq_sids={sid_tensor[valid_mask].unique().tolist()} "
+                    f"tail='{tail_txt}'"
+                )
+            k_text_list.append(K_text)
+            # ==== /DEBUG ====
+
             step_ids_list.append(torch.tensor(parse_result.step_ids, dtype=torch.long))
             # 生成steps结构（用于语义评估）
             steps_texts_list.append([
@@ -460,6 +479,26 @@ class ParallelEnvManager(object):
         step_ids_pad = pad_sequence(
             step_ids_list, batch_first=True, padding_value=-1
         )
+        # ==== DEBUG: batch-level step_id range check ====
+        try:
+            B = step_ids_pad.size(0)
+            for i in range(B):
+                row = step_ids_pad[i]
+                valid = row >= 0
+                if not valid.any():
+                    continue
+                row_max = int(row[valid].max().item())
+                K_text_i = int(k_text_list[i]) if i < len(k_text_list) else -1
+                if row_max + 1 != K_text_i:
+                    logger.error(
+                        f"[step_dbg:B] i={i} data_id={getattr(samples[i], 'data_id', '?')} "
+                        f"row_max={row_max} K_text={K_text_i} "
+                        f"uniq={row[valid].unique().tolist()}"
+                    )
+        except Exception as e:
+            logger.exception(f"[step_dbg:B] failed to scan step_ids_pad: {e}")
+        # ==== /DEBUG ====
+
         step_ids_pad = pad_sequence_to_length(
             step_ids_pad, self.config.data.max_response_length, -1
         )
