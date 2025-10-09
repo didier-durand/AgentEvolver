@@ -139,15 +139,28 @@ The generated synthetic tasks are stored in:
 
 Inspect the generated data to ensure it aligns with your training requirements.
 
-## Overview of Task Manager
+## Workflow of Task Manager
 
 In data-driven model optimization, agent training is formulated as trajectory tuning over environment-specific tasks. Consequently, the quality of training data directly determines the resulting agent capabilities. However, in real environments, acquiring and controlling the quality of training tasks is inherently difficult.
 
 Task Manager addresses this challenge by providing a dynamic and general-purpose workflow for environment exploration, task generation, and quality control.
 
-```text
-# TODO: Insert diagram here
-```
+![The Whole Workflow of Task Manager](/img/task_manager/workflow.png)
+
+From the figure, the workflow consists of three major steps and corresponding components:
+
+1. **Environment Exploration**
+    - **Environment Service** – Provides interface for the environment.
+    - **Environment Profile** – Describes the environment.
+2. **Task Derivation**:
+    - **Strategy** – Control the exploration and summarization process.
+3. **Task Curation**:
+    - **Filter** – Control the quality of tasks.
+    - **Mixture Strategy** – Control the distribution of tasks.
+
+And
+
+- **Judge**: Provide rewards for training.
 
 The following sections describe each component of Task Manager in detail, including extension points for customization.
 
