@@ -1,3 +1,39 @@
+<p align="center">
+ <img src="docs/img/logo.jpg" alt="AgentEvolver Logo" width="90%">
+</p>
+<h2 align="center">AgentEvolver: An Efficient Self-Evolving Agent System</h2>
+
+<!-- --- -->
+
+<p align="center">
+  <a href="https://arxiv.org/abs/0000"><img src="https://img.shields.io/badge/cs.MA-0000-B31C1C?logo=arxiv&logoColor=B31C1C" alt="arxiv"/></a>
+  <a href="https://pypi.org/project/reme-ai/"><img src="https://img.shields.io/badge/python-3.12+-blue" alt="Python Version"></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-black" alt="License"></a>
+  <a href="https://github.com/modelscope/AgentEvolver"><img src="https://img.shields.io/github/stars/modelscope/AgentEvolver?style=social" alt="GitHub Stars"></a>
+</p>
+
+
+
+<!-- <p align="center">
+  <strong>AgentEvolver: An Efficient Self-Evolving Agent System</strong><br>
+</p> -->
+
+**AgentEvolver** is an end-to-end, self-evolving training framework that empowers agents to autonomously
+improve their capabilities, aiming for efficient, cost-effective, and continuous capability evolution.
+
+- **Automatic Task Generation** – Curiosity-driven *self-questioning* to probe the environment and autonomously create diverse tasks, eliminating costly manual dataset construction.  
+- **Experience-guided Exploration** – *Self-navigating* strategies that summarize and reuse cross-task experience to guide higher-quality rollouts and improve exploration efficiency.  
+- **Attribution-based Credit Assignment** – *Self-attributing* along long trajectories to uncover the causal contribution of intermediate steps, enabling fine-grained and efficient policy optimization.  
+
+- **Environment Compatibility** – Standardized interfaces for seamless integration with a wide range of external environments and tool APIs.  
+- **Flexible Context Manager** – Built-in utilities for managing multi-turn contexts and complex interaction logic, supporting diverse deployment scenarios.  
+- **Modular & Extensible Architecture** – Decoupled components allow easy customization, secondary development, and future algorithm upgrades.  
+
+
+## 📰 News
+
+- **[2025-10]** 🎉🎉 AgentEvolver v1 is released now!
+
 
 ## 🚀 Quick Start
 ### Step 1. Basic Dependency Installation
@@ -54,55 +90,4 @@ cd env_service/environments/appworld && bash setup.sh
 
 ```bash
 python launcher.py --conf examples/self-question-attr.yaml --with-appworld --with-logview
-```
-
-
-
-## Usage
-
-### Step 1: Install & Run EnvService
-
-```bash
-cd envservice
-python3 -m env.env_service
-```
-
-### Step 2: Run BeyondAgent Training
-
-If you have 2 GPUs
-Use the standard 2-GPU script:
-
-```bash
-cd your_verl_root_dir
-bash examples/run_qwen2.5-3b_dataflow_2gpu.sh
-```
-
-## Launcher Usage
-
-`Launcher` is a one-stop experiment manager that can start and backup experiments automatically.
-
-1. Launching experiment from yaml, start environment service manually.
-
-```bash
-python launcher.py --conf examples/example_launcher/anni_baseline.yaml
-```
-
-
-2. Launching environment service with `Launcher` (using appworld as example)
-    - edit `./.env`, or use `export`
-    ```bash
-    APPWORLD_PATH=...
-    APPWORLD_ACTIVATION=...
-    ```
-
-    - run
-    ```bash
-    python launcher.py --with-appworld
-    ```
-
-
-3. Launching environment service **before** starting the training. (Automatically capture the success message of environment service)
-
-```bash
-python launcher.py --conf examples/example_launcher/anni_baseline.yaml --with-appworld
 ```
