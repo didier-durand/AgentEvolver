@@ -297,6 +297,8 @@ class TaskManager(object):
         """
         trajectories=self._step_explore(task,data_id,rollout_id)  # ⭐ Explore the environment
         task_objectives=sum([self._step_summarize(task,trajectory) for trajectory in trajectories],[])  # ⭐ Summarize the exploration results
+        # check open query
+        assert all([x.task.open_query==True for x in task_objectives]), "all synthetic tasks must have open query"
         return task_objectives
 
 

@@ -180,6 +180,7 @@ def parse_tasks_from_response(task: Task, response: str) -> list[TaskObjective]:
             ):
                 continue
             task.query = t["query"]
+            task.open_query = True
             x=TaskObjective(
                 task=task,
                 confidence=t["confidence"],
