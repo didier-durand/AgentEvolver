@@ -33,7 +33,7 @@ class AgentFlow(BaseAgentFlow):
         """
         super().__init__(**kwargs)  # ⭐ Call the constructor of the base class
         self._reward_calculator = reward_calculator
-        self._enable_context_generator=self.config.experience_maker.enable_context_generator
+        # self._enable_context_generator=self.config.experience_maker.enable_context_generator
 
         self.instruction_template_ids = self.tokenizer.encode("user\n")  # ⭐ Encode the user instruction template
         self.response_template_ids = self.tokenizer.encode("assistant\n")  # ⭐ Encode the assistant response template
@@ -77,7 +77,7 @@ class AgentFlow(BaseAgentFlow):
                 init_messages=init_messages,
                 traj_exp_config=traj_exp_config
                 )
-        self.cmt.metadata["task_train_exp_mode"] = traj_exp_config.train_mode
+        self.cmt.metadata["task_train_mode"] = traj_exp_config.train_mode
         self.cmt.metadata["add_exp"] = traj_exp_config.add_exp
         self.cmt.metadata["experience_list"] = traj_exp_config.experience_list
         # init_messages, metadata = self.add_experience(init_messages, task_id, data_id, rollout_id, query, add_exp)  # ⭐ Initialize messages and metadata

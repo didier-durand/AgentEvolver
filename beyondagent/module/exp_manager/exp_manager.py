@@ -4,7 +4,6 @@ from loguru import logger
 from dataclasses import dataclass, field
 from omegaconf import DictConfig
 from typing import List, Dict, Any, Optional, Literal, Tuple
-from concurrent.futures.thread import ThreadPoolExecutor
 from beyondagent.schema.task import Task
 from beyondagent.schema.trajectory import Trajectory
 from beyondagent.client.em_client import EMClient
@@ -40,16 +39,14 @@ class ExperienceManager(object):
         self.config: DictConfig = config
         self.rollout_config = config.actor_rollout_ref.rollout
         self.exp_manager_config = config.exp_manager
-        self.em_config = config.experience_maker
+        self.reme_config = config.exp_manager.reme
 
-        self.val_rollout_expmode = self.exp_manager_config.val_rollout_expmode
-        self.train_rollout_expmode = self.exp_manager_config.train_rollout_expmode
-        self.rollout_expratio = self.exp_manager_config.rollout_expratio
-        self.train_sample_expmode = self.exp_manager_config.train_sample_expmode
+        self.val_rollout_mode = self.exp_manager_config.val_rollout_mode
+        self.train_rollout_mode = self.exp_manager_config.train_rollout_mode
+        self.rollout_ratio = self.exp_manager_config.rollout_ratio
+        self.train_sample_mode = self.exp_manager_config.train_sample_mode
         self.train_sample_keepratio = self.exp_manager_config.train_sample_keepratio
 
-        self.em_client = EMClient(base_url=self.config.experience_maker.base_url)
-        self.thread_pool = ThreadPoolExecutor(max_workers=self.config.thread_pool.max_workers)
 
     def get_complete_exp_configs(self, tasks: List[Task], mode: Literal["sample", "validate"]) -> List[TaskExpConfig]:
         """
@@ -76,13 +73,13 @@ class ExperienceManager(object):
         Returns:
             List[TaskExpConfig]: A list of TaskExpConfig objects with allocated training modes.
         """
-        expmode_to_ratio = {
+        mode_to_ratio = {
             "allkeep": 1.0,
             "alldiscard": 0.0,
             "hybrid": self.train_sample_keepratio
         }
-        keep_ratio = expmode_to_ratio.get(
-            self.train_sample_expmode, self.train_sample_keepratio
+        keep_ratio = mode_to_ratio.get(
+            self.train_sample_mode, self.train_sample_keepratio
         )
         keep_count = int(len(tasks) * keep_ratio)
         exp_modes = ['keep'] * keep_count + ['discard'] * (len(tasks) - keep_count)
@@ -102,11 +99,11 @@ class ExperienceManager(object):
         """
         is_validate = mode == "validate"
         rollout_n = self.rollout_config.val_kwargs.n if is_validate else self.rollout_config.n
-        exp_mode = self.val_rollout_expmode if is_validate else self.train_rollout_expmode
+        exp_mode = self.val_rollout_mode if is_validate else self.train_rollout_mode
         for task_exp_config in exp_configs:
             add_exp_choices = {
                 "woexp": [False] * rollout_n,
-                "mixed": sorted([i < round(rollout_n*self.rollout_expratio) for i in range(rollout_n)], key=lambda _: random.random()),
+                "mixed": sorted([i < round(rollout_n*self.rollout_ratio) for i in range(rollout_n)], key=lambda _: random.random()),
                 "all": [True] * rollout_n
             }[exp_mode]
             task_exp_config.add_exp = add_exp_choices
@@ -202,12 +199,14 @@ class ExperienceWorker(object):
         Returns:
             Tuple[List[dict], TrajExpConfig]: Updated messages and modified trajectory experience config.
         """
-        if not traj_exp_config.add_exp:
+        # check experience conditions
+        if not self._should_process_experience(traj_exp_config):
             return init_messages, traj_exp_config
         
-        if not hasattr(self, 'em_client'):
-            self.em_client = EMClient(base_url=self.config.experience_maker.base_url)
+        # initialize em client
+        self._ensure_em_client()
         
+        # construct trajectory
         trajectory = Trajectory(
             data_id=traj_exp_config.data_id,
             rollout_id=traj_exp_config.rollout_id,
@@ -215,23 +214,50 @@ class ExperienceWorker(object):
             query=traj_exp_config.query
         )
 
+        # retrieve experience
+        reme_config = self.config.exp_manager.reme
         history_experience = self.em_client.call_context_generator(
             trajectory=trajectory,
-            retrieve_top_k=self.config.experience_maker.retrieve_top_k,
-            workspace_id=self.config.experience_maker.workspace_id
+            retrieve_top_k=reme_config.retrieve_top_k,
+            workspace_id=reme_config.workspace_id
         )
 
+        # check empty condition
         if not history_experience:
-            logger.info("History experience is empty!")
+            logger.info("Experience is empty!")
             return init_messages, traj_exp_config
 
-        logger.info(f"History experience: {history_experience}")
+        # apply experience to trajectory
+        logger.info(f"Retrieved history experience: {history_experience}")
         formatted_experience = self.experience_template.format(history_experience)
         new_content = formatted_experience + trajectory.steps[-1]["content"]
         trajectory.steps[-1]["content"] = new_content
         traj_exp_config.experience_list = traj_exp_config.experience_list + [formatted_experience]
 
         return trajectory.steps, traj_exp_config
+    
+    def _should_process_experience(self, traj_exp_config: TrajExpConfig) -> bool:
+        """
+        Checks if experience processing should be performed.
+
+        Args:
+            traj_exp_config (TrajExpConfig): Configuration for the trajectory experience.
+
+        Returns:
+            bool: True if experience should be processed, False otherwise.
+        """
+        return (traj_exp_config.add_exp and
+                self.config.exp_manager.reme.enable_context_generator)
+    
+    def _ensure_em_client(self) -> None:
+        """
+        Initializes the EM client if it doesn't exist.
+        """
+        if not hasattr(self, 'em_client'):
+            self.em_client = EMClient(
+                base_url=self.config.exp_manager.reme.base_url
+            )
+
 
 
     def manage_training_context(self, message: str, metadata_config: Dict) -> Tuple[str, str]:
@@ -248,7 +274,7 @@ class ExperienceWorker(object):
         experience = ""
         cleaned_message = message
 
-        if metadata_config.get("task_train_exp_mode", "discard") == "discard": 
+        if metadata_config.get("task_train_mode", "discard") == "discard": 
             pattern = re.escape(self.experience_template).replace(r'\{\}', '(.*?)')
             match = re.search(pattern, message, re.DOTALL)
             if match:

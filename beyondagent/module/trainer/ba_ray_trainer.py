@@ -67,7 +67,8 @@ from beyondagent.utils.tracking import ValidationGenerationsLogger
 from beyondagent.module.adv_processor.adca_grpo_pipeline import apply_adca_grpo
 
 from beyondagent.module.exp_manager.exp_manager import ExperienceManager
-
+from itertools import groupby
+from concurrent.futures import as_completed
 
 def parse_reward_from_dataproto(data: DataProto, return_dict=False) -> dict | torch.Tensor:
     """
@@ -487,7 +488,7 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
         self.reward_fn = parse_reward_from_dataproto
         self.val_reward_fn = parse_reward_from_dataproto
 
-        self.em_client = EMClient(base_url=self.config.experience_maker.base_url)
+        self.em_client = EMClient(base_url=self.config.exp_manager.reme.base_url)
         self.env_manager = ParallelEnvManager(config=self.config, async_rollout_manager=self.async_rollout_manager, max_parallel=self.config.actor_rollout_ref.rollout.max_env_worker)
         self.thread_pool = ThreadPoolExecutor(max_workers=self.config.thread_pool.max_workers)
         self.exp_manager = ExperienceManager(config=self.config)
@@ -895,13 +896,6 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
                 # test_output_gen_batch_padded = self.async_rollout_manager.generate_sequences(test_gen_batch_padded)
                 self.async_rollout_manager.sleep()
 
-            ##################
-            # ANNI
-            # summary in batch: summary for experience of experience_maker, updating candidate context
-            # if self.config.experience_maker.enable_summarizer and self.config.experience_maker.val_summarizer_save:
-            #     self.summarize_trajectories_in_batches(trajectories)
-            ##################
-
             # unpad
             # test_output_gen_batch = unpad_dataproto(test_output_gen_batch_padded, pad_size=pad_size)
             print("validation generation end")
@@ -916,14 +910,6 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
             output_ids = test_output_gen_batch.batch["responses"]
             output_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in output_ids]
             sample_outputs.extend(output_texts)
-
-            ##################
-            # ANNI
-            # # Store extracted experiences
-            # experience_infos_dict = test_output_gen_batch.non_tensor_batch["extras"]
-            # sample_experiences_dict.extend(experience_infos_dict)
-            # sample_experiences_dict:[{'add_exp':bool, 'experience':str}, ...]
-            ##################
 
             # repeat test batch
             test_batch.non_tensor_batch["uid"] = np.array([str(uuid.uuid4()) for _ in range(len(test_batch.batch))], dtype=object)
@@ -981,7 +967,89 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
 
         return metric_dict
     
-    # [anni1015] TODO: initialize_exp_pool() 初始化经验池函数
+    def initialize_exp_pool(self):
+        """
+        """
+        for i, test_data in enumerate(self.val_dataloader):
+            test_batch = DataProto.from_single_dict(test_data)
+
+            # we only do validation on rule-based rm
+            if self.config.reward_model.enable and test_batch[0].non_tensor_batch["reward_model"]["style"] == "model":
+                return {}
+
+            batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
+            non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
+            if "multi_modal_data" in test_batch.non_tensor_batch:
+                non_tensor_batch_keys_to_pop.append("multi_modal_data")
+            if "raw_prompt" in test_batch.non_tensor_batch:
+                non_tensor_batch_keys_to_pop.append("raw_prompt")
+            if "tools_kwargs" in test_batch.non_tensor_batch:
+                non_tensor_batch_keys_to_pop.append("tools_kwargs")
+            if "extras" in test_batch.non_tensor_batch:
+                non_tensor_batch_keys_to_pop.append("extras")
+            test_gen_batch = test_batch.pop(
+                batch_keys=batch_keys_to_pop,
+                non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
+            )
+
+            test_gen_batch.meta_info = {
+                "eos_token_id": self.tokenizer.eos_token_id,
+                "pad_token_id": self.tokenizer.pad_token_id,
+                "recompute_log_prob": False,
+                "do_sample": self.config.actor_rollout_ref.rollout.val_kwargs.do_sample,
+                "validate": True,
+            }
+            print(f"test_gen_batch meta info: {test_gen_batch.meta_info}")
+
+            # pad to be divisible by dp_size
+            # test_gen_batch_padded, pad_size = pad_dataproto_to_divisor(test_gen_batch, self.actor_rollout_wg.world_size)
+            if not self.async_rollout_mode:
+                raise NotImplementedError
+
+            else:
+                self.async_rollout_manager.wake_up()
+                tasks = [Task(
+                            task_id=test_gen_batch.non_tensor_batch["extras"][i]["task_id"],
+                            query=test_gen_batch.non_tensor_batch["extras"][i]['new_query'],
+                            env_type=self.config.env_service.env_type,
+                            open_query=test_gen_batch.non_tensor_batch["extras"][i]['open_query'],
+                            # evaluator=gen_batch.non_tensor_batch['extras'][i]['evaluator'], # avoid potential bugs
+                         ) for i in range(len(test_gen_batch))]
+                task_exp_configs = self.exp_manager.get_complete_exp_configs(tasks, mode="validate")
+                print("=" * 10 + "start validate rollout" + "=" * 10)
+                trajectories = self.env_manager.rollout(tasks, task_exp_configs, mode="validate", epoch=f"test.1.{i}")  # ⭐ Execute the rollout to generate trajectories
+                print("=" * 10 + "end validate rollout" + "=" * 10)
+                self.async_rollout_manager.sleep()
+
+            # submit summary: updating experience pool
+            trajectories_sorted = sorted(trajectories, key=lambda traj: traj.task_id)
+            grouped_trajectories = [list(group) for key, group in groupby(trajectories_sorted, key=lambda traj: traj.task_id)]
+
+            batch_size = self.config.exp_manager.summary_batch_size
+            all_batches = []
+            for group in grouped_trajectories:
+                for i in range(0, len(group), batch_size):
+                    all_batches.append(group[i:i + batch_size])
+
+            futures = []
+            for batch in all_batches:
+                future = self.thread_pool.submit(
+                    self.em_client.call_summarizer,
+                    trajectories=batch,
+                    workspace_id=self.config.exp_manager.reme.workspace_id
+                )
+                futures.append(future)
+            
+            results = []
+            for future in as_completed(futures):
+                try:
+                    result = future.result()
+                    results.append(result)
+                except Exception as e:
+                    print(f"Error in summary task: {e}")
+        
+        return
+
 
     def fit(self):
         """
@@ -1008,6 +1076,13 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
         # 确保训练前正常load参数，避免valid_before_train的效果过差
         self.async_rollout_manager.wake_up()
         self.async_rollout_manager.sleep()
+
+        # initialize experience pool
+        if self.config.exp_manager.get("init_exp_before_training", False):
+            self.initialize_exp_pool()
+            if self.config.exp_manager.get("init_exp_only", False):
+                return
+
         # perform validation before training
         # currently, we only support validation using the reward_function.
         if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
@@ -1017,8 +1092,6 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
             logger.log(data=val_metrics, step=self.global_steps)
             if self.config.trainer.get("val_only", False):
                 return
-
-        # [anni1015] TODO: 调用initialize_exp_pool()函数
 
         # [0616] qingxu: add `RAY_DEBUG_POST_MORTEM` env var to activate breakpoint debugging
         # vscode_conditional_breakpoint()
@@ -1085,19 +1158,17 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
                             trajectories = self.env_manager.rollout(tasks, task_exp_configs, mode="sample", epoch=f"train.{epoch}.{i}")  # ⭐ Generate trajectories using the environment manager
                             assert len(trajectories)>0, "{len(trajectories)=}?"
                             print("=" * 10 + "end fit rollout" + "=" * 10)
-
                             gen_batch_output = self.env_manager.to_dataproto(trajectories)
-                            ##########
-                            # ANNI1027
+                            
+                            # update metrics about experience manager
                             exp_mask_ratio = gen_batch_output.batch["exp_mask"].float().mean()
                             metrics.update({"exp_mask_ratio": exp_mask_ratio.detach().item()})
-                            ##########
                             context_time_cost = [x.metadata["context_time_cost"] for x in trajectories if "context_time_cost" in x.metadata]
                             if context_time_cost:
                                 metrics.update({
-                                  "experience_maker/context_cost_avg":   np.mean(context_time_cost),
-                                  "experience_maker/context_cost_max":   np.max(context_time_cost),
-                                  "experience_maker/context_cost_min":   np.min(context_time_cost),
+                                  "exp_manager/context_cost_avg":   np.mean(context_time_cost),
+                                  "exp_manager/context_cost_max":   np.max(context_time_cost),
+                                  "exp_manager/context_cost_min":   np.min(context_time_cost),
                                 })
 
                             print(f"gen_batch_output.info batch.keys={gen_batch_output.batch.keys()}")
@@ -1133,12 +1204,19 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
 
                     batch.batch["response_mask"] = compute_response_mask(batch)  # ⭐ Compute and add response mask to the batch
 
-                    ##################
-                    # [anni1015] TODO: 保留异步功能，拆分成两个函数
-                    # summary for experience of experience_maker, updating candidate context
-                    experience_metrics = self.exp_manager.schedule_exp_update(self.global_steps, trajectories)
-                    metrics.update(experience_metrics)
-                    ##################
+                    # update experience pool
+                    summary_task = None
+                    reme_config = self.config.exp_manager.reme
+                    if (reme_config.enable_summarizer
+                        and reme_config.updated_freq
+                        and self.global_steps % reme_config.updated_freq == 0):
+
+                        summary_task = self.thread_pool.submit(
+                            self.em_client.call_summarizer,
+                            trajectories=trajectories,
+                            workspace_id=reme_config.workspace_id
+                        )
+                        print("async submit summary_task~")
 
                     # balance the number of valid tokens on each dp rank.
                     # Note that this breaks the order of data inside the batch.
@@ -1290,6 +1368,13 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
                             actor_output = self.actor_rollout_wg.update_actor(batch)  # ⭐ Update the actor with the new batch
                         actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
                         metrics.update(actor_output_metrics)
+                    
+                    # collect summary tasks
+                    if summary_task is not None:
+                        print("wait for summary_task complete~")
+                        summarizer_response, time_cost = summary_task.result()
+                        metrics.update({"exp_manager/summary": time_cost})
+
 
                     # Log rollout generations if enabled
                     rollout_data_dir = self.config.trainer.get("rollout_data_dir", None)

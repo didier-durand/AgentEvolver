@@ -29,7 +29,7 @@ actor_rollout_ref:
       completion_callback: beyondagent.module.trainer.simple_completion_callback.SimpleCompletionCallback
       enable: True
       format: llama3_json
-      max_steps: 30
+      max_steps: 5
       tool_config_path: ""
     custom_dataflow_cls:
       path: ""
@@ -99,25 +99,34 @@ task_manager:
   #   state_similarity_threshold: 0.95
 
 
-experience_maker:
-  base_url: "http://127.0.0.1:8001"
-  workspace_id: "default"
-  enable_summarizer: False
-  enable_context_generator: False
-  retrieve_top_k: 3
-  updated_freq: 0   # 更新经验池的频率(这里表示k个steps)
-  val_summarizer_save: False
+# experience_maker:
+#   base_url: "http://127.0.0.1:8001"
+#   workspace_id: "default"
+#   enable_summarizer: False
+#   enable_context_generator: False
+#   retrieve_top_k: 3
+#   updated_freq: 0   # 更新经验池的频率(这里表示k个steps)
+#   val_summarizer_save: False
 
 
 exp_manager:
-  val_rollout_expmode: "woexp"    # dev集上rollout是否加经验: ["mixed", "all", "woexp"]
-  train_rollout_expmode: "woexp"  # train集上rollout是否加经验: ["mixed", "all", "woexp"]
-  rollout_expratio: 0.0           # rollout时在group内部加经验的比例, train&val 保持一致
-  train_sample_expmode: "alldiscard"    # train集上rollout之后转换成训练样本保留/剔除/混合经验: ["allkeep", "alldiscard", "hybrid"]
-  train_sample_keepratio: 1.0     # task-level多少比例选择保留经验
-  experience_template: "\n\nSome Related Experience to help you to complete the task:<EXP>{}</EXP>\n\n"  # 插入经验的模版
-  init_experience_before_training: False  # 是否在训练之前初始化经验池
-  init_experience_only: False  # 是否只初始化经验池
+  val_rollout_mode: "woexp"    # dev集上rollout是否加记忆: ["mixed", "all", "woexp"]
+  train_rollout_mode: "woexp"  # train集上rollout是否加记忆: ["mixed", "all", "woexp"]
+  rollout_ratio: 0.0           # rollout时在group内部加记忆的比例, train&val 保持一致
+  train_sample_mode: "alldiscard"    # train集上rollout之后转换成训练样本保留/剔除/混合记忆: ["allkeep", "alldiscard", "hybrid"]
+  train_sample_keepratio: 1.0     # task-level多少比例选择保留记忆
+  experience_template: "\n\nSome Related Experience to help you to complete the task:<EXP>{}</EXP>\n\n"  # 插入记忆的模版
+  init_exp_before_training: False  # 是否在训练之前初始化记忆池
+  init_exp_only: False  # 是否只初始化记忆池
+  summary_batch_size: 8
+  reme:
+    base_url: "http://127.0.0.1:8001"
+    workspace_id: "default"
+    enable_summarizer: False
+    enable_context_generator: False
+    retrieve_top_k: 3
+    updated_freq: 0   # 更新经验池的频率(这里表示k个steps)
+
 
 trainer:
   val_only: False

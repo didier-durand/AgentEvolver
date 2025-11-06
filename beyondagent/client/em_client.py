@@ -28,13 +28,13 @@ class EMClient(HttpClient):
             str: The merged experience string from the server's response.
         """
         start_time = time.time()
-        self.url = self.base_url + "/retriever"  # ⭐ Set the URL for the request
+        self.url = self.base_url + "/retrieve_task_memory"  # ⭐ Set the URL for the request
         json_data = {
             # "query": trajectory.query,
             "query": json.dumps(trajectory.steps, ensure_ascii=False),
-            "retrieve_top_k": retrieve_top_k,
+            "top_k": retrieve_top_k,
             "workspace_id": workspace_id,
-            "metadata": kwargs
+            # "metadata": kwargs
         }
         response = self.request(json_data=json_data, headers={"Content-Type": "application/json"})  # ⭐ Send the request to the server
         if response is None:
@@ -43,11 +43,11 @@ class EMClient(HttpClient):
 
         # TODO return raw experience instead of context @jinli
         trajectory.metadata["context_time_cost"] = time.time() - start_time  # ⭐ Log the time taken for the operation
-        return response["experience_merged"]  # ⭐ Return the merged experience from the response
+        return response["answer"]  # ⭐ Return the merged experience from the response
 
     def call_summarizer(self, trajectories: List[Trajectory], workspace_id: str = "default", **kwargs):
         """
-        Sends a request to the summarizer endpoint with a list of trajectories and additional metadata.
+        Sends a request to the summary_task_memory endpoint with a list of trajectories and additional metadata.
 
         Args:
             trajectories (List[Trajectory]): A list of trajectory objects to be summarized.
@@ -59,18 +59,17 @@ class EMClient(HttpClient):
         """
         start_time = time.time()
 
-        self.url = self.base_url + "/summarizer"  # ⭐ Set the URL for the summarizer endpoint
+        self.url = self.base_url + "/summary_task_memory"  # ⭐ Set the URL for the summarizer endpoint
         json_data = {
-            "traj_list": [{"messages": x.steps, "score": x.reward.outcome} for x in trajectories],
+            "trajectories": [{"messages": x.steps, "score": x.reward.outcome} for x in trajectories],
             "workspace_id": workspace_id,
-            "metadata": kwargs
+            # "metadata": kwargs
         }
         response = self.request(json_data=json_data, headers={"Content-Type": "application/json"})  # ⭐ Send the request to the server
         if response is None:
-            logger.warning("error call_context_generator")
+            logger.warning("error call_summarizer")
             return "", time.time() - start_time
-
-        return response["experience_list"], time.time() - start_time
+        return response, time.time() - start_time
 
 
 def main():
