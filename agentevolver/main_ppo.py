@@ -128,7 +128,7 @@ def get_custom_reward_fn(config):
     return wrapped_fn
 
 
-@hydra.main(config_path="../config", config_name="beyond_agent_dataflow", version_base=None)
+@hydra.main(config_path="../config", config_name="script_config", version_base=None)
 def main(config):
     """
     Entry point for the PPO training process.

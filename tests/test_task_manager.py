@@ -14,7 +14,7 @@ from agentevolver.client.env_client import EnvClient
 
 @hydra.main(
     config_path="../config",
-    config_name="beyond_agent_dataflow",
+    config_name="script_config",
     version_base=None,
 )
 def test_get_task_from_cache(config):

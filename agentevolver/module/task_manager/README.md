@@ -18,7 +18,7 @@ TaskManager 及其组件实现了环境探索 + 数据生成部分的系统设�
 - 环境探索算法
 - 数据混合策略（纯原始数据？合成数据？）
 
-在 `config/beyond_agent_dataflow.yaml` 中有如下配置，其作用可见对应 comment。
+在 `config/script_config.yaml` 中有如下配置，其作用可见对应 comment。
 
 ```
 
@@ -89,7 +89,7 @@ log_file="dlc_log_${current_time}.log"
 
 python3 -m agentevolver.main_ppo \
     --config-path="$CONFIG_PATH" \
-    --config-name='beyond_agent_dataflow' \
+    --config-name='script_config' \
     env_service.env_url=$env_url \
     algorithm.adv_estimator=grpo \
     data.train_batch_size=2 \

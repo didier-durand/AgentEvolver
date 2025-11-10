@@ -5,7 +5,7 @@ hydra:
 
 defaults:
   - ppo_trainer
-  - beyond_agent_dataflow_for_launcher
+  - launcher_config
   - _self_
 
 trainer:

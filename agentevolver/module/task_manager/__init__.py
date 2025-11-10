@@ -61,7 +61,7 @@ def run_task_manager(config):
 
     print("finish generating, #tasks: ", len(dataset))
 
-@hydra.main(config_path="../../../config", config_name="beyond_agent_dataflow", version_base=None)
+@hydra.main(config_path="../../../config", config_name="script_config", version_base=None)
 def main(config):
     print("running task manager to generate synthetic tasks...")
     run_task_manager(config)
