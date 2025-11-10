@@ -195,7 +195,7 @@ class LaunchWhenAbsent:
                     converted_cmd = [
                             sys.executable,
                             "-m",
-                            "beyondagent.utils.pty",
+                            "agentevolver.utils.pty",
                             "--human-cmd", f"'{string_to_base64(self.cmd[0])}'",
                             "--dir", self.dir,
                             "--env", str(env_dict),

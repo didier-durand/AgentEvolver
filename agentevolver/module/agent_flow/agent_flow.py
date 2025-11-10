@@ -10,7 +10,6 @@ from agentevolver.utils.utils import convert_tool_to_user_message
 from agentevolver.schema.trajectory import Reward, Trajectory
 from best_logger import register_logger, print_dict, print_listofdict
 from agentevolver.module.context_manager.cmt_linear import Linear_CMT, ExtendedMessage
-# from beyondagent.module.context_manager.cmt_memory import MemoryCMT, GroupedSteps
 from agentevolver.module.context_manager.cmt_linear_think import LinearThinkCMT
 from agentevolver.module.context_manager.cmt_context_clip import SelfContextClipCMT
 from agentevolver.module.agent_flow.reward_calculator import RewardCalculator

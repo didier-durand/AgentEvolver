@@ -1,6 +1,6 @@
 hydra:
   searchpath:
-    - file://external/verl/verl/trainer/config
+    - file://external/config_fallback
 
 defaults:
   - ppo_trainer
@@ -26,7 +26,7 @@ actor_rollout_ref:
     mode: async
     debug_llm_io: False
     multi_turn:
-      completion_callback: beyondagent.module.trainer.simple_completion_callback.SimpleCompletionCallback
+      completion_callback: agentevolver.module.trainer.simple_completion_callback.SimpleCompletionCallback
       enable: True
       format: llama3_json
       max_steps: 30

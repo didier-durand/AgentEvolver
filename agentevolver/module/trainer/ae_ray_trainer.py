@@ -297,7 +297,7 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
     return data
 
 
-class BeyondAgentRayPPOTrainer(RayPPOTrainer):
+class AgentEvolverRayPPOTrainer(RayPPOTrainer):
     """
     Note that this trainer runs on the driver process on a single CPU/GPU node.
     """
@@ -477,7 +477,7 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
         # create async rollout manager and request scheduler
         self.async_rollout_mode = False
         if self.config.actor_rollout_ref.rollout.mode == "async":
-            from agentevolver.module.trainer.ba_async_llm_server_manager import BaAsyncLLMServerManager
+            from agentevolver.module.trainer.ae_async_llm_server_manager import BaAsyncLLMServerManager
             self.async_rollout_mode = True
             self.async_rollout_manager = BaAsyncLLMServerManager(
                 config=self.config,

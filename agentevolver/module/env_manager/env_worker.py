@@ -8,7 +8,6 @@ from agentevolver.module.agent_flow.base_agent_flow import BaseAgentFlow
 from agentevolver.schema.task import Task
 from agentevolver.schema.trajectory import Trajectory
 from agentevolver.module.context_manager.cmt_linear import Linear_CMT, ExtendedMessage
-# from beyondagent.module.context_manager.cmt_memory import MemoryCMT, GroupedSteps
 from agentevolver.module.context_manager.cmt_linear_think import LinearThinkCMT
 from agentevolver.module.context_manager.cmt_context_clip import SelfContextClipCMT
 from agentevolver.module.exp_manager.exp_manager import TrajExpConfig

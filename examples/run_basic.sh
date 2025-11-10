@@ -11,7 +11,7 @@ current_time=$(date "+%Y%m%d_%H%M%S")
 log_file="log_${current_time}.log"
 
 
-python3 -m beyondagent.main_ppo \
+python3 -m agentevolver.main_ppo \
     --config-path="$CONFIG_PATH" \
     --config-name='beyond_agent_dataflow' \
     env_service.env_url=$env_url \

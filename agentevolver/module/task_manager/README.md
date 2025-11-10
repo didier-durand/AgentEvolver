@@ -1,10 +1,10 @@
 ## 概述
 
-> BeyondAgent 旨在打造一个能够自主迭代演进的智能体学习系统，组成其核心能力的重要一环就是自主学习能力，即对给定环境能自举式探索，自动生成与环境功能适配、且与符合模型能力的学习任务。
+> AgentEvolver 旨在打造一个能够自主迭代演进的智能体学习系统，组成其核心能力的重要一环就是自主学习能力，即对给定环境能自举式探索，自动生成与环境功能适配、且与符合模型能力的学习任务。
 
 TaskManager 及其组件实现了环境探索 + 数据生成部分的系统设计，能够进行环境自主探索、任务自动生成和数据的自定义混合，并扩充和系统化设计奖励计算策略。详情参考[语雀文档](https://aliyuque.antfin.com/bayotg/wgzss4/mor93govlqawbb43)。
 
-引入 TaskManager 的 BeyondAgent 运行过程如下：
+引入 TaskManager 的 AgentEvolver 运行过程如下：
 
 1. **从 EnvService 拉取 Task 或本地读取 原始Task**。当train_files val_files不为 None 时，优先自本地（train_files val_files）加载。
 2. **自举探索和生成 Task**（目前）在开始训练前，加载环境探索算法，从已有数据的环境描述为起点，**全量探索用于训练的合成 Task 并缓存**。在提供缓存路径的情况下，优先使用缓存的合成 Task。
@@ -87,7 +87,7 @@ env_url=http://localhost:8000
 current_time=$(date "+%Y%m%d_%H%M%S")
 log_file="dlc_log_${current_time}.log"
 
-python3 -m beyondagent.main_ppo \
+python3 -m agentevolver.main_ppo \
     --config-path="$CONFIG_PATH" \
     --config-name='beyond_agent_dataflow' \
     env_service.env_url=$env_url \

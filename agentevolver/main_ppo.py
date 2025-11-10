@@ -24,7 +24,7 @@ from agentevolver.module.task_manager.strategies.random import LlmRandomSampling
 from agentevolver.module.task_manager.task_manager import TaskManager
 
 # non_console_mods = ["appworld_io"]
-# register_logger(non_console_mods=non_console_mods, auto_clean_mods=[], base_log_path="logs/beyondagent", debug=True)
+# register_logger(non_console_mods=non_console_mods, auto_clean_mods=[], base_log_path="logs/agentevolver", debug=True)
 
 import os
 import hydra
@@ -33,7 +33,7 @@ import ray
 from agentevolver.module.task_manager.env_profiles import EnvProfile
 from verl.trainer.ppo.reward import load_reward_manager
 
-from agentevolver.module.trainer.ba_ray_trainer import BeyondAgentRayPPOTrainer
+from agentevolver.module.trainer.ae_ray_trainer import AgentEvolverRayPPOTrainer
 
 from verl.trainer.ppo import core_algos
 if "kl_control" in os.environ.get("DEBUG_ARG",""):
@@ -318,7 +318,7 @@ class TaskRunner:
             num_explore_threads=config.task_manager.num_explore_threads,
             n=config.task_manager.n,
         )  # ⭐ Initialize the validation task manager with specified configurations
-        trainer = BeyondAgentRayPPOTrainer(
+        trainer = AgentEvolverRayPPOTrainer(
             config=config,
             tokenizer=tokenizer,
             processor=processor,

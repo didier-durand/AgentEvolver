@@ -1,6 +1,6 @@
 hydra:
   searchpath:
-    - file://external/verl/verl/trainer/config
+    - file://external/config_fallback
     - file://config
 
 defaults:
