@@ -13,18 +13,11 @@ if ! command -v conda &> /dev/null; then
 fi
 
 # ---- Step 2. Ask user for environment name ----
-while true; do
-    read -rp "Enter a name for the new conda environment: " ENV_NAME
-    if [[ -z "$ENV_NAME" ]]; then
-        echo "Environment name cannot be empty."
-        continue
-    fi
-    if conda info --envs | awk '{print $1}' | grep -qx "$ENV_NAME"; then
-        echo "⚠️  Environment '$ENV_NAME' already exists. Please choose another name."
-    else
-        break
-    fi
-done
+ENV_NAME="agentevolver"
+if conda info --envs | awk '{print $1}' | grep -qx "$ENV_NAME"; then
+    echo "⚠️  Environment '$ENV_NAME' already exists. If you need to reinstall it, please delete the existing environment first."
+    exit 1
+fi
 
 # ---- Step 3. Create new environment ----
 echo
