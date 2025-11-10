@@ -44,7 +44,7 @@ actor_rollout_ref:
     sparse: True
 
   model:
-    path: /mnt/data/zouanni.zan/models/Qwen2.5-14B-Instruct
+    path: models/Qwen2.5-14B-Instruct
     
 
 thread_pool:

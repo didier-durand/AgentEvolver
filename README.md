@@ -103,7 +103,12 @@ The script below sets up an environment for appworld.
 cd env_service/environments/appworld && bash setup.sh
 ```
 
-### Step 3. (Setup ReMe?)
+### Step 3. Setup ReMe-Service (Optional)
+Set up the ReMe environment by running the script:
+```bash
+bash external/reme/install_reme.sh
+```
+For more detailed installation, please refer to [ReMe](https://github.com/agentscope-ai/ReMe).
 
 ### Step 4. Begin Training! 🚀 🚀
 Copy the `example.env` file to `.env` and modify the parameters, including your **API key**, **conda path**.
@@ -119,6 +124,19 @@ python launcher.py --conf examples/self-question-nav-attr.yaml --with-appworld
 ```
 
 ## 🧩 Advanced Usage
+
+### 🔧 Manual Execution
+
+For users requiring fine-grained control over the training pipeline, we provide standalone execution scripts: 
+
+- `bash examples/run_basic.sh` - Execute basic RL pipeline with GRPO using built-in datasets within environments.
+- `bash examples/run_overall.sh` - Run the complete self-evolving AgentEvolver pipeline with fully customizable configurations.
+
+Refer to the  **[QuickStart](docs/tutorial/quick_start.md)** for detailed usage instructions and configuration parameters.
+
+### 📄 Documentation
+
+Comprehensive technical documentation for each core component: 
 
 For detailed usage and customization, please refer to the following guidelines:
 

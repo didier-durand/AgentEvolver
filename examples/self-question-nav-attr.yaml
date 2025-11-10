@@ -25,7 +25,7 @@ exp_manager:
   reme:
     base_url: "http://127.0.0.1:8001"  # base URL for ReMe service
     workspace_id: "default"  # workspace ID for ReMe
-    enable_summarizer: False  # whether to enable experience summarizer
+    enable_summarizer: True  # whether to enable experience summarizer
     enable_context_generator: True  # whether to enable context generator
     retrieve_top_k: 3  # number of top experiences to retrieve
     updated_freq: 0   # experience pool update frequency (in steps, 0=disabled)
