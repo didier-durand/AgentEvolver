@@ -58,7 +58,7 @@ python3 -m agentevolver.main_ppo \
     attribution_driven_credit_assignment.consistent_scale=1.0 \
     attribution_driven_credit_assignment.pos_unconsistent_scale=0.2 \
     attribution_driven_credit_assignment.neg_unconsistent_scale=0.2 \
-    attribution_driven_credit_assignment.model='qwen-plus' \
+    attribution_driven_credit_assignment.model='qwen-max' \
     algorithm.adv_estimator=grpo \
     data.train_batch_size=32 \
     data.max_prompt_length=4000 \

@@ -206,7 +206,7 @@ attribution_driven_credit_assignment:
   # concurrent processing count
   concurrent: 5
   # model used for semantic evaluation
-  model: "qwen-plus"
+  model: "qwen-max"
   # maximum API call retries, default 200 times
   api_max_retries: 200
   # set to specific path to enable, for example: "/path/to/llm_evaluation_logs"

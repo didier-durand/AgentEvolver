@@ -200,7 +200,7 @@ attribution_driven_credit_assignment:
 
   # 2. LLM Attribution Service settings
   evaluation_type: "api"
-  model: "qwen-plus"                # Recommend using a powerful model
+  model: "qwen-max"                # Recommend using a powerful model
   concurrent: 10                    # Adjust based on your API QPS limits
   api_max_retries: 200
   llm_evaluation_log_dir: "/path/to/your/logs" # Strongly recommended for debugging
